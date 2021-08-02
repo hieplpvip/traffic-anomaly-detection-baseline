@@ -12,9 +12,12 @@ parser.add_argument("--root", type=pathlib.Path, help="directory containing vide
                     default=pathlib.Path("../Data/test-data/"))
 parser.add_argument("--ext", type=str, help="extensions of the videos within the directory to be processed",
                     default="mp4")
+parser.add_argument("--freq", type=int, help="time frequency", default=100)
 args = parser.parse_args()
+
 root = args.root.resolve()
 ext = args.ext.split(" ")
+timeF = args.freq
 
 repo_path = pathlib.Path(__file__).resolve().parent
 dest_dir = repo_path / "ori_images"
@@ -29,7 +32,6 @@ for video_path in tqdm.tqdm(video_names):
     vc = cv2.VideoCapture(os.fspath(video_path))
     c = 1
     if vc.isOpened():
-        timeF = 100
         while vc.grab():
             _, frame = vc.retrieve()
             if c % timeF == 0:
