@@ -55,10 +55,11 @@ for video_path in tqdm.tqdm(videos_folder):
         img = cv2.imread(os.fspath(video_path / (str(start_frame) + '.jpg')))
         for n in range(nums_frames):
             now_im = cv2.imread(os.fspath(video_path / (str(n * internal_frame + start_frame) + '.jpg')))
-            filename = str(n * internal_frame + start_frame) + '_' + str(j) + '.jpg'
-            if np.mean(np.abs(now_im - former_im)) > 5:
-                img = img * (1 - alpha) + now_im * alpha
-                cv2.imwrite(os.fspath(processed_video_path / filename), img)
-            else:
-                cv2.imwrite(os.fspath(processed_video_path / filename), img * 0)
-            former_im = now_im
+            if now_im is not None:
+                filename = str(n * internal_frame + start_frame) + '_' + str(j) + '.jpg'
+                if np.mean(np.abs(now_im - former_im)) > 5:
+                    img = img * (1 - alpha) + now_im * alpha
+                    cv2.imwrite(os.fspath(processed_video_path / filename), img)
+                else:
+                    cv2.imwrite(os.fspath(processed_video_path / filename), img * 0)
+                former_im = now_im
