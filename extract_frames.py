@@ -2,6 +2,7 @@ import argparse
 import os
 import pathlib
 import time
+from typing import TextIO
 
 import cv2
 import natsort
@@ -9,13 +10,14 @@ import numpy as np
 import tqdm
 
 
-def extract_frames(dest_dir: pathlib.Path, video_path: pathlib.PurePath, root: pathlib.PurePath,
-                   time_f: int) -> pathlib.Path:
+def extract_frames(dest_dir: pathlib.Path, video_path: pathlib.PurePath, root: pathlib.PurePath, time_f: int,
+                   ori_images_txt: TextIO) -> pathlib.Path:
     """
     :param dest_dir: Directory where the extracted frames will be stored.
     :param video_path: The absolute path of the video.
     :param root: Directory containing the videos to be processed.
     :param time_f: Time frequency.
+    :param ori_images_txt: File object where the frames of `video_path` are stored.
     :return: Directory containing the stored frames of `video_path`
     """
     vc = cv2.VideoCapture(os.fspath(video_path))
@@ -25,8 +27,10 @@ def extract_frames(dest_dir: pathlib.Path, video_path: pathlib.PurePath, root: p
         c = 1
         while vc.grab():
             if c % time_f == 0:
+                img_path = os.fspath(pic_path / (str(c) + '.jpg'))
                 _, frame = vc.retrieve()
-                cv2.imwrite(os.fspath(pic_path / (str(c) + '.jpg')), frame)
+                cv2.imwrite(img_path, frame)
+                ori_images_txt.write(img_path + "\n")
             c += 1
             cv2.waitKey(1)
         vc.release()
@@ -84,9 +88,10 @@ if __name__ == "__main__":
     video_names = natsort.natsorted(video_names, alg=natsort.ns.PATH)
     video_folders = []
     print("capture videos")
-    for video_path in tqdm.tqdm(video_names):
-        pic_path = extract_frames(dest_dir, video_path, root, time_f)
-        video_folders.append(pic_path)
+    with open(repo_path / "ori_images.txt", "w") as ori_images_txt:
+        for video_path in tqdm.tqdm(video_names):
+            pic_path = extract_frames(dest_dir, video_path, root, time_f, ori_images_txt)
+            video_folders.append(pic_path)
 
     dest_dir_processed = repo_path / "processed_images"
     print("average images")
