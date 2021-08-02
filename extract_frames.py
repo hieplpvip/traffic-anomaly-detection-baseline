@@ -25,20 +25,24 @@ video_names = frozenset.union(*frozenset(map(lambda e: frozenset(root.rglob("*."
 video_names = natsort.natsorted(video_names, alg=natsort.ns.PATH)
 videos_folder = []
 print("capture videos")
-for video_path in tqdm.tqdm(video_names):
-    pic_path = dest_dir / video_path.relative_to(root).with_suffix("")
-    pic_path.mkdir(parents=True, exist_ok=True)
-    videos_folder.append(pic_path)
-    vc = cv2.VideoCapture(os.fspath(video_path))
-    c = 1
-    if vc.isOpened():
-        while vc.grab():
-            _, frame = vc.retrieve()
-            if c % timeF == 0:
-                cv2.imwrite(os.fspath(pic_path / (str(c) + '.jpg')), frame)
-            c += 1
-            cv2.waitKey(1)
-        vc.release()
+with open(repo_path / "ori_images.txt", "w") as ori_images_txt:
+    for video_path in tqdm.tqdm(video_names):
+        pic_path = dest_dir / video_path.relative_to(root).with_suffix("")
+        pic_path.mkdir(parents=True, exist_ok=True)
+        videos_folder.append(pic_path)
+        vc = cv2.VideoCapture(os.fspath(video_path))
+        c = 1
+        if vc.isOpened():
+            while vc.grab():
+                _, frame = vc.retrieve()
+                if c % timeF == 0:
+                    img_path = os.fspath(pic_path / (str(c) + '.jpg'))
+                    cv2.imwrite(img_path, frame)
+                    ori_images_txt.write(img_path + "\n")
+
+                c += 1
+                cv2.waitKey(1)
+            vc.release()
 
 dest_dir_processed = repo_path / "processed_images"
 print("average images")
