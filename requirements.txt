@@ -6,3 +6,5 @@ kneed
 natsort
 scikit-learn
 tqdm
+ipython
+Pillow
