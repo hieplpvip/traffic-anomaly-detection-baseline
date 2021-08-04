@@ -7,6 +7,8 @@ from typing import Dict, List, Mapping, Sequence, Union, Tuple, Any, Iterable
 import cv2
 import natsort
 import numpy as np
+from IPython import display
+from PIL import Image
 from kneed import KneeLocator
 from scipy.signal import savgol_filter
 from skimage import metrics
@@ -46,6 +48,23 @@ def get_videos() -> List[str]:
 
 
 VIDEOS = get_videos()
+
+
+def cv2_imshow(a: np.ndarray) -> None:
+    """A replacement for cv2.imshow() for use in Jupyter notebooks.
+  Args:
+    a : np.ndarray. shape (N, M) or (N, M, 1) is an NxM grayscale image. shape
+      (N, M, 3) is an NxM BGR color image. shape (N, M, 4) is an NxM BGRA color
+      image.
+  """
+    a = a.clip(0, 255).astype('uint8')
+    # cv2 stores colors as BGR; convert to RGB
+    if a.ndim == 3:
+        if a.shape[2] == 4:
+            a = cv2.cvtColor(a, cv2.COLOR_BGRA2RGBA)
+        else:
+            a = cv2.cvtColor(a, cv2.COLOR_BGR2RGB)
+    display.display(Image.fromarray(a))
 
 
 def kmeans_clu(data: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray, List[int], KMeans]:
@@ -463,12 +482,26 @@ def backtrack(all_bounds, pt: PT, base: os.PathLike[str]) -> Tuple[Times, All_St
     count = 0
     for stat in all_statfn:
         image_counter = 0
-
+        video = data[count]
+        video_name = video['relative_path']
         if np.max(stat) > 0.5 and np.min(stat) < 0.65:
             stat = savgol_filter(stat, 21, 1)
             nstat = (list(reversed(stat)) - min(stat)) / (max(stat) - min(stat))
             found = check_continual(nstat, 150)
             if found:
+                frame_image = video["imgs1"][image_counter]
+
+                print("video name:", video_name)
+                print("frame_image:", frame_image)
+
+                img = cv2.imread(os.fspath(base / video_name / frame_image), cv2.IMREAD_UNCHANGED)
+                scale_percent = 50  # percent of original size
+                width = int(img.shape[1] * scale_percent / 100)
+                height = int(img.shape[0] * scale_percent / 100)
+                dim = (width, height)
+                resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+                cv2_imshow(resized)
+
                 times[all_bounds[count][1]] = np.min((times[all_bounds[count][1]], np.min(
                     ((np.where(np.array(nstat) >= 0.4)[0][0]) * 5 / 30, times[all_bounds[count][1]]))))
 
@@ -538,6 +571,8 @@ def backtrack1(all_bounds: Bounds, base: os.PathLike[str]) -> Tuple[Times, All_S
     image_counter = 0
 
     for stat in all_statfn:
+        video = data[count]
+        video_name = video['relative_path']
         stat = reject_outliers(stat)
         if np.max(stat) > 0.5 and np.min(stat) < 0.55:
             stat = savgol_filter(stat, 21, 1)
@@ -546,6 +581,18 @@ def backtrack1(all_bounds: Bounds, base: os.PathLike[str]) -> Tuple[Times, All_S
             found = check_continual(nstat, 150)
 
             if found:
+                frame_image = video["img0"]
+                print("video name:", video_name)
+                print("frame_image:", frame_image)
+                img = cv2.imread(os.fspath(base / video_name / frame_image), cv2.IMREAD_UNCHANGED)
+
+                scale_percent = 50  # percent of original size
+                width = int(img.shape[1] * scale_percent / 100)
+                height = int(img.shape[0] * scale_percent / 100)
+                dim = (width, height)
+                resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+                cv2_imshow(resized)
+
                 if (np.where(np.array(nstat) >= 0.4))[0][0] != 0:
                     times[all_bounds[count][1]] = np.min((times[all_bounds[count][1]], np.min(
                         ((np.where(np.array(nstat) >= 0.5)[0][0]) * 5 / 30, times[all_bounds[count][1]]))))
