@@ -9,6 +9,7 @@ from skimage.measure import label
 masks_dir = pathlib.Path(__file__).resolve().parent
 masks_txt = iter(map(lambda txt: txt.relative_to(masks_dir), masks_dir.rglob("*.txt")))
 masks_txt = natsort.natsorted(masks_txt, alg=natsort.ns.PATH)
+mas_dir = masks_dir / "Mas"
 
 count_thred = 0.02
 min_area = 500
@@ -60,6 +61,6 @@ for mask_txt in tqdm.tqdm(masks_txt):
     mask = mask.astype(float)
     k = gaussian_filter(mask, gass_sigma)
     mask = k > count_thred
-    mask_npy = masks_dir / "Mas" / mask_txt.with_suffix(".npy")
+    mask_npy = mas_dir / mask_txt.with_suffix(".npy")
     mask_npy.parent.mkdir(parents=True, exist_ok=True)
     np.save(mask_npy, mask)
