@@ -394,7 +394,7 @@ def change_detect(base: os.PathLike[str]) -> Tuple[Cam_Change, Loc, All_Stat3]:
     cam_change = list()
     loc = list()
     for idx, stat3 in enumerate(all_stat3, start=1):
-        if np.mean(stat3) - np.min(stat3) > 0.06:
+        if stat3 and np.mean(stat3) - np.min(stat3) > 0.06:
             cam_change.append(idx)
             loc.append(-2 + np.where(np.array(stat3) == np.min(stat3))[0][0])
 
