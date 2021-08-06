@@ -1,25 +1,62 @@
+import json
 import os
+import pathlib
 from collections import Counter
+from typing import Dict, List, Mapping, Sequence, Union, Tuple, Any, Iterable
 
 import cv2
+import natsort
 import numpy as np
 from kneed import KneeLocator
-from natsort import natsorted
 from scipy.signal import savgol_filter
 from skimage import metrics
 from sklearn.cluster import KMeans
 
+__all__ = ['kmeans_clu', 'reject_outliers', 'check_continual', 'nms', 'extract_objects', 'extract_cases', 'extract_roi',
+           'extract_roi1', 'extract_bounds', 'extract_bounds1', 'change_detect', 'backtrack', 'backtrack1']
+REPO_PATH = pathlib.Path(__file__).resolve().parent
+# Typing hints
+Relative_Coordinates = Mapping[str, float]
+Objects = List[Mapping[str, Union[int, str, Relative_Coordinates, float]]]
+Darknet_JSON = Sequence[Mapping[str, Union[int, str, Objects]]]
 
-def Kmeans_clu(data, k):
+# Return value datatype
+Vid_Cords = List[np.ndarray]
+All_Videos_Cords = List[Vid_Cords]
+
+PT = List[np.ndarray]
+Centers = Union[np.ndarray, Iterable, int, float, tuple, dict, List[List[List[np.ndarray]]]]
+Centersf = List[Centers]
+Cam_Change = List[int]
+Loc = List[int]
+Times = Dict[Union[int, Any], Union[int, np.ndarray, float, complex]]
+All_Statfn = List[List[Union[int, np.ndarray, float, complex]]]
+Bounds = List[List[Union[Union[np.ndarray, int], Any]]]
+Bounds1 = List[List[Union[int, Any]]]
+All_Stat3 = List[List[Union[np.ndarray, int, float, complex]]]
+
+
+# --------------------------------------------------------------------------------------------------
+
+
+def get_videos() -> List[str]:
+    with open(REPO_PATH / 'dataset.json', 'r') as f:
+        videos = json.load(f)
+        return videos
+
+
+VIDEOS = get_videos()
+
+
+def kmeans_clu(data: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray, List[int], KMeans]:
     kmeans = KMeans(n_clusters=k, max_iter=10000, n_init=10).fit(data)  ##Apply k-means clustering
     labels = kmeans.labels_
     clu_centres = kmeans.cluster_centers_
-    z = {i: np.where(kmeans.labels_ == i)[0] for i in range(kmeans.n_clusters)}
-
+    z = [np.where(kmeans.labels_ == i)[0] for i in range(kmeans.n_clusters)]
     return clu_centres, labels, z, kmeans
 
 
-def reject_outliers(data):
+def reject_outliers(data: Union[np.ndarray, Iterable]) -> np.ndarray:
     m = 2
     u = np.mean(data)
     s = np.std(data)
@@ -27,18 +64,18 @@ def reject_outliers(data):
     return np.array(filtered)
 
 
-def check_continual(stat, k):
-    Found = False
+def check_continual(stat: np.ndarray, k: int) -> bool:
+    found = False
     inx = (stat > 0.5).astype(int)
     for ix in range(0, len(inx) - k, k):
         if np.min((inx[ix:ix + k])) == 1:
-            Found = True
-    return Found
+            found = True
+    return found
 
 
-def nms(boxes, overlapThresh):
+def nms(boxes: np.ndarray, overlap_thresh: float) -> Union[np.ndarray, List[float]]:
     # if there are no boxes, return an empty list
-    if len(boxes) == 0:
+    if not boxes.any():
         return []
 
     # if the bounding boxes integers, convert them to floats --
@@ -46,7 +83,7 @@ def nms(boxes, overlapThresh):
     if boxes.dtype.kind == "i":
         boxes = boxes.astype("float")
 
-    # initialize the list of picked indexes	
+    # initialize the list of picked indexes
     pick = []
 
     # grab the coordinates of the bounding boxes
@@ -87,7 +124,7 @@ def nms(boxes, overlapThresh):
 
         # delete all indexes from the index list that have
         idxs = np.delete(idxs, np.concatenate(([last],
-                                               np.where(overlap > overlapThresh)[0])))
+                                               np.where(overlap > overlap_thresh)[0])))
 
     # return only the bounding boxes that were picked using the
     # integer data type
@@ -95,180 +132,84 @@ def nms(boxes, overlapThresh):
     return boxes[pick]
 
 
-def extract_objects(D):
-    c = 62
-    valid_list = ['bus', 'truck', 'person', 'car', 'boat']
-    All_Cords = list()
-    for vid in range(1, 63):
+def extract_objects(darknet_json: Darknet_JSON) -> All_Videos_Cords:
+    base = REPO_PATH / "ori_images"
+    frames_folders = frozenset(map(lambda e: e.parent, base.rglob("*.jpg")))
+    frames_folders = natsort.natsorted(frames_folders, alg=natsort.ns.PATH)
+    c = 0
+    valid_list = ('bus', 'truck', 'person', 'car', 'boat')
+    all_cords = list()
 
-        Vid_Cords = list()
-        for file in range(22, 266):
-            Frame_Cords = list()
+    for frames_folder in frames_folders:
+        vid_cords = list()
+        frames = frames_folder.glob("*.jpg")
+        for frame in frames:
+            frame_number = int(frame.stem)
 
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
+            if frame_number % 100 == 0:
 
-            c += 1
+                frame_cords = list()
 
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400 + 200
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
+                if (len(darknet_json[c]['objects'])) != 0:
+                    for bound in darknet_json[c]['objects']:
+                        if bound['name'] in valid_list:
+                            x = bound['relative_coordinates']['center_x'] * 400
+                            y = bound['relative_coordinates']['center_y'] * 410
+                            h = bound['relative_coordinates']['height'] * 410
+                            w = bound['relative_coordinates']['width'] * 400
+                            f = c
+                            if w * h > 16 and w > 4 and h > 4:
+                                frame_cords.append([x, y, h, w, f])
 
-            c += 1
+                c += 1
 
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400 + 400
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
+                if (len(darknet_json[c]['objects'])) != 0:
+                    for bound in darknet_json[c]['objects']:
+                        if bound['name'] in valid_list:
+                            x = bound['relative_coordinates']['center_x'] * 400 + 200
+                            y = bound['relative_coordinates']['center_y'] * 410
+                            h = bound['relative_coordinates']['height'] * 410
+                            w = bound['relative_coordinates']['width'] * 400
+                            f = c
+                            if w * h > 16 and w > 4 and h > 4:
+                                frame_cords.append([x, y, h, w, f])
 
-            c += 1
+                c += 1
 
-            Frame_Cords = nms(np.array(Frame_Cords), 0.9)
-            Vid_Cords.append(Frame_Cords)
-        c += 67
-        All_Cords.append(Vid_Cords)
+                if (len(darknet_json[c]['objects'])) != 0:
+                    for bound in darknet_json[c]['objects']:
+                        if bound['name'] in valid_list:
+                            x = bound['relative_coordinates']['center_x'] * 400 + 400
+                            y = bound['relative_coordinates']['center_y'] * 410
+                            h = bound['relative_coordinates']['height'] * 410
+                            w = bound['relative_coordinates']['width'] * 400
+                            f = c
+                            if w * h > 16 and w > 4 and h > 4:
+                                frame_cords.append([x, y, h, w, f])
 
-    for vid in range(63, 64):
-        Vid_Cords = list()
-        for file in range(22, 232):
-            Frame_Cords = list()
+                c += 1
 
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
+                frame_cords = nms(np.array(frame_cords), 0.9)
+                vid_cords.append(frame_cords)
 
-            c += 1
+        all_cords.append(vid_cords)
 
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400 + 200
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
-
-            c += 1
-
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400 + 400
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
-
-            c += 1
-
-            Frame_Cords = nms(np.array(Frame_Cords), 0.9)
-            Vid_Cords.append(Frame_Cords)
-
-        c += 67
-        All_Cords.append(Vid_Cords)
-
-    for vid in range(64, 101):
-
-        Vid_Cords = list()
-        for file in range(22, 266):
-            Frame_Cords = list()
-
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
-
-            c += 1
-
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400 + 200
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
-
-            c += 1
-
-            if (len(D[c]['objects'])) != 0:
-                for bound in D[c]['objects']:
-                    if bound['name'] in valid_list:
-                        x = bound['relative_coordinates']['center_x'] * 400 + 400
-                        y = bound['relative_coordinates']['center_y'] * 410
-                        h = bound['relative_coordinates']['height'] * 410
-                        w = bound['relative_coordinates']['width'] * 400
-                        f = file
-                        if w * h > 16 and w > 4 and h > 4:
-                            Frame_Cords.append([x, y, h, w, f])
-
-            c += 1
-
-            Frame_Cords = nms(np.array(Frame_Cords), 0.9)
-            Vid_Cords.append(Frame_Cords)
-
-        c += 67
-        All_Cords.append(Vid_Cords)
-
-    return All_Cords
+    return all_cords
 
 
-def extract_cases(All_Cords):
+def extract_cases(all_cords: All_Videos_Cords) -> PT:
     maxes = list()
-    for i in range(0, 100):
+    for vid_cords in all_cords:
+        vid_cords = np.array(vid_cords, dtype=object)
+        at = [item for frame_cords in vid_cords for item in frame_cords]
+        at = np.array(np.array(at)).reshape(-1, 5)
 
-        T = np.array(All_Cords[i], dtype=object)
-        AT = [item for sublist in T for item in sublist]
-        AT = np.array(np.array(AT)).reshape(-1, 5)
-
-        new_idx = list()
-        diss = list()
-        if AT.shape[0] > 10:
+        if at.shape[0] > 10:
             y = []
             K = range(1, 10)
             for k in K:
                 km = KMeans(n_clusters=k, max_iter=10000, n_init=10)
-                km = km.fit(AT[:, 0:4])
+                km = km.fit(at[:, 0:4])
                 y.append(km.inertia_)
 
             x = range(1, len(y) + 1)
@@ -279,10 +220,10 @@ def extract_cases(All_Cords):
             if k is None:
                 k = 10
 
-            center, lb, z, kmeans = Kmeans_clu(AT[:, 0:4], k)
-            max_count = Counter(lb)
+            center, labels, z, kmeans = kmeans_clu(at[:, 0:4], k)
+            max_count = Counter(labels)
 
-            if AT.shape[0] > 1:
+            if at.shape[0] > 1:
                 mx = max_count[max(max_count, key=max_count.get)]
             else:
                 mx = 0
@@ -290,24 +231,24 @@ def extract_cases(All_Cords):
             mx = 0
         maxes.append(mx)
 
-    PT = list(np.where(np.array(maxes) > 20)[0] + 1)
-    return PT
+    pt = list(np.where(np.array(maxes) > 20)[0] + 1)
+    return pt
 
 
-def extract_roi(PT, All_Cords):
-    Centers = list()
-    for i in PT:
-
-        Mask = np.load("Masks/Mas/" + str(i) + ".npy")
-        T = np.array(All_Cords[i - 1])
-        AT = [item for sublist in T for item in sublist]
-        AT = np.array(np.array(AT)).reshape(-1, 5)
-        if AT.shape[0] > 20:
+def extract_roi(pt: PT, all_cords: All_Videos_Cords) -> Centers:
+    centers = list()
+    mas_dir = REPO_PATH / "Masks" / "Mas"
+    mas_npys = natsort.natsorted(iter(mas_dir.rglob("*.npy")), alg=natsort.ns.PATH)
+    for mas_npy in mas_npys:
+        mask = np.load(mas_npy)
+        t = np.array(all_cords[mas_npy.relative_to(mas_dir)], dtype=object)
+        at = [item for sublist in t for item in sublist]
+        at = np.array(np.array(at)).reshape(-1, 5)
+        if at.shape[0] > 20:
             y = []
-            K = range(1, 10)
-            for k in K:
+            for k in range(1, 10):
                 km = KMeans(n_clusters=k, max_iter=10000, n_init=10)
-                km = km.fit(AT[:, 0:4])
+                km = km.fit(at[:, 0:4])
                 y.append(km.inertia_)
 
             x = range(1, len(y) + 1)
@@ -318,38 +259,37 @@ def extract_roi(PT, All_Cords):
             if k is None:
                 k = 10
 
-            center, lb, z, kmeans = Kmeans_clu(AT[:, 0:4], k)
+            center, lb, z, kmeans = kmeans_clu(at[:, 0:4], k)
             vid_cent = list()
             for cent in center:
                 y_m = np.max((0, int(cent[1]) - 10))
                 y_ma = np.min((410, int(cent[1]) + 10))
                 x_m = np.max((0, int(cent[0]) - 10))
                 x_ma = np.min((800, int(cent[0]) + 10))
-                if np.max(Mask[y_m:y_ma, x_m:x_ma]) == 1:
+                if np.max(mask[y_m:y_ma, x_m:x_ma]) == 1:
                     vid_cent.append(cent)
-            Centers.append(vid_cent)
+            centers.append(vid_cent)
 
-    return Centers
+    return centers
 
 
-def extract_roi1(cam_change, All_Cords, loc):
-    Centersf = list()
+def extract_roi1(cam_change: Cam_Change, all_cords: All_Videos_Cords, loc: Loc) -> Centersf:
+    centersf = list()
     for i in range(0, len(cam_change)):
-        Centers = list()
-        T = np.array(All_Cords[cam_change[i] - 1])
-        AT = [item for sublist in T for item in sublist]
-        AT = np.array(np.array(AT)).reshape(-1, 5)
-        imx = np.where(AT[:, 4] >= 10 * loc[i])[0][0]
-        AT = AT[0:imx, :]
+        centers = list()
+        t = np.array(all_cords[cam_change[i] - 1])
+        at = [item for sublist in t for item in sublist]
+        at = np.array(np.array(at)).reshape(-1, 5)
+        imx = np.where(at[:, 4] >= 10 * loc[i])[0][0]
+        at = at[0:imx, :]
 
-        Mask = np.load("Masks/Mas/" + str(cam_change[i]) + ".npy")
+        mask = np.load(os.fspath(REPO_PATH / "Masks/Mas/" / pathlib.PurePath(VIDEOS[i - 1]).with_suffix(".npy")))
 
-        if AT.shape[0] > 10:
+        if at.shape[0] > 10:
             y = []
-            K = range(1, 10)
-            for k in K:
+            for k in range(1, 10):
                 km = KMeans(n_clusters=k, max_iter=10000, n_init=10)
-                km = km.fit(AT[:, 0:4])
+                km = km.fit(at[:, 0:4])
                 y.append(km.inertia_)
 
             x = range(1, len(y) + 1)
@@ -359,206 +299,258 @@ def extract_roi1(cam_change, All_Cords, loc):
             if k is None:
                 k = 10
 
-            center, lb, z, kmeans = Kmeans_clu(AT[:, 0:4], k)
+            center, lb, z, kmeans = kmeans_clu(at[:, 0:4], k)
             vid_cent = list()
             for cent in center:
                 y_m = np.max((0, int(cent[1]) - 10))
                 y_ma = np.min((410, int(cent[1]) + 10))
                 x_m = np.max((0, int(cent[0]) - 10))
                 x_ma = np.min((800, int(cent[0]) + 10))
-                if np.max(Mask[y_m:y_ma, x_m:x_ma]) == 1:
+                if np.max(mask[y_m:y_ma, x_m:x_ma]) == 1:
                     vid_cent.append(cent)
 
-            Centers.append(vid_cent)
-        Centersf.append(Centers)
-    return Centersf
+            centers.append(vid_cent)
+        centersf.append(centers)
+    return centersf
 
 
-def extract_bounds(Centers, PT, All_Cords):
+def extract_bounds(centers: Centers, pt: PT, all_cords: All_Videos_Cords) -> Bounds:
     count = 0
-    Bounds = list()
-    for centro in Centers:
+    bounds = list()
+    for centro in centers:
 
-        T = np.array(All_Cords[-1 + PT[count]])
-        AT = [item for sublist in T for item in sublist]
-        AT = np.array(np.array(AT)).reshape(-1, 5)
+        t = np.array(all_cords[-1 + pt[count]], dtype=object)
+        at = [item for sublist in t for item in sublist]
+        at = np.array(np.array(at)).reshape(-1, 5)
 
         count2 = 1
         for c in centro:
-            Found = False
+            found = False
             idx = 0
-            while not Found:
-                if idx < len(AT):
-                    if np.abs(AT[idx, 0] - c[0]) < 25 and np.abs(AT[idx, 1] - c[1]) < 25 and AT[idx, 2] < 100 and int(
-                            AT[idx, 2]) > 7 and int(AT[idx, 3]) > 7:
-                        Bounds.append([AT[idx, 0:], PT[count], count2])
-                        Found = True
+            while not found:
+                if idx < len(at):
+                    if np.abs(at[idx, 0] - c[0]) < 25 and np.abs(at[idx, 1] - c[1]) < 25 and at[idx, 2] < 100 and int(
+                            at[idx, 2]) > 7 and int(at[idx, 3]) > 7:
+                        bounds.append([at[idx, 0:], pt[count], count2])
+                        found = True
                 else:
-                    Found = True
+                    found = True
                 idx += 1
             count2 += 1
         count += 1
 
-    return Bounds
+    return bounds
 
 
-def extract_bounds1(Centers, cam_change, loc, All_Cords):
-    Bounds = list()
+def extract_bounds1(centers: Centers, cam_change: Cam_Change, loc: Loc, all_cords: All_Videos_Cords) -> Bounds1:
+    bounds = list()
     for i in range(0, len(cam_change)):
-        for centro in Centers[i]:
+        for centro in centers[i]:
 
-            T = np.array(All_Cords[cam_change[i] - 1])
-            AT = [item for sublist in T for item in sublist]
-            AT = np.array(np.array(AT)).reshape(-1, 5)
-            imx = np.where(AT[:, 4] >= 10 * loc[i])[0][0]
-            AT = AT[0:imx, :]
+            t = np.array(all_cords[cam_change[i] - 1])
+            at = [item for sublist in t for item in sublist]
+            at = np.array(np.array(at)).reshape(-1, 5)
+            imx = np.where(at[:, 4] >= 10 * loc[i])[0][0]
+            at = at[0:imx, :]
 
             count2 = 1
             for c in centro:
-                Found = False
+                found = False
                 idx = 0
-                while not Found:
-                    if idx < len(AT):
-                        if np.abs(AT[idx, 0] - c[0]) < 25 and np.abs(AT[idx, 1] - c[1]) < 25 and AT[
-                            idx, 2] < 100 and int(AT[idx, 2]) > 6 and int(AT[idx, 3]) > 6:
-                            Bounds.append([AT[idx, 0:], cam_change[i], count2])
-                            Found = True
+                while not found:
+                    if idx < len(at):
+                        if np.abs(at[idx, 0] - c[0]) < 25 and np.abs(at[idx, 1] - c[1]) < 25 \
+                                and at[idx, 2] < 100 and int(at[idx, 2]) > 6 and int(at[idx, 3]) > 6:
+                            bounds.append([at[idx, 0:], cam_change[i], count2])
+                            found = True
                     else:
-                        Found = True
+                        found = True
                     idx += 1
                 count2 += 1
 
-    return Bounds
+    return bounds
 
 
-def change_detect(Base):
-    All_stat3 = list()
-    Folders = natsorted(os.listdir(Base))
-    for i in range(len(Folders)):
+def change_detect(base: os.PathLike[str]) -> Tuple[Cam_Change, Loc, All_Stat3]:
+    base = pathlib.Path(base)
+    frames_folders = frozenset(map(lambda e: e.parent, base.rglob("*.jpg")))
+    frames_folders = natsort.natsorted(frames_folders, alg=natsort.ns.PATH)
+    all_stat3 = list()
 
-        base2 = Base + str(Folders[i]) + "/"
-        files = natsorted(os.listdir(base2))
+    for frames_folder in frames_folders:
         stat = list()
+        frames = iter(map(lambda f: os.fspath(f), frames_folder.rglob("*.jpg")))
+        frames = natsort.natsorted(frames, alg=natsort.ns.PATH)
+        for idx in range(1, len(frames) - 10, 10):
+            img0 = cv2.imread(frames[idx])
+            img1 = cv2.imread(frames[idx + 10])
 
-        for idx in range(1, len(files) - 10, 10):
+            is_zero = np.sum(img1) == 0 or np.sum(img0) == 0
+            sad = 0.99 if is_zero else metrics.structural_similarity(img0, img1, multichannel=True, win_size=3)
 
-            img0 = cv2.imread(base2 + files[idx])
-            img1 = cv2.imread(base2 + files[idx + 10])
-            sad = 0
-            if np.sum(img1) != 0 and np.sum(img0) != 0:
-                sad = metrics.structural_similarity(img0, img1, multichannel=True, win_size=3)
-            else:
-                sad = 0.99
             stat.append(np.max((0, sad)))
-        All_stat3.append(stat)
+        all_stat3.append(stat)
 
     cam_change = list()
     loc = list()
-    for ss in range(len(All_stat3)):
-        #             if len(np.where(np.array(All_stat3[ss]) < 0.87)[0]) > 0:
-        if np.mean(All_stat3[ss]) - np.min((All_stat3[ss])) > 0.06:
-            cam_change.append(ss + 1)
-            loc.append(-2 + np.where(np.array(All_stat3[ss]) == np.min((All_stat3[ss])))[0][0])
+    for idx, stat3 in enumerate(all_stat3, start=1):
+        if np.mean(stat3) - np.min(stat3) > 0.06:
+            cam_change.append(idx)
+            loc.append(-2 + np.where(np.array(stat3) == np.min(stat3))[0][0])
 
-    return cam_change, loc, All_stat3
+    return cam_change, loc, all_stat3
 
 
-def backtrack(Bounds, PT, Base):
-    All_statfn = list()
-    for i in range(0, len(Bounds)):
-        if Bounds[i][1] in PT:
-            base2 = Base + str(Bounds[i][1]) + "/"
-            files = natsorted(os.listdir(base2))
+def backtrack(all_bounds, pt: PT, base: os.PathLike[str]) -> Tuple[Times, All_Statfn]:
+    base = pathlib.Path(base)
+    all_statfn = list()
+    data = []
+
+    for bounds in all_bounds:
+
+        if bounds[1] in pt:
+            base2 = base / pathlib.PurePath(VIDEOS[(bounds[1] - 1)]).with_suffix("")
+
+            files = natsort.natsorted(frozenset(base2.glob("*.jpg")), alg=natsort.ns.PATH)
+
             stat = list()
-            back_len = int(Bounds[i][0][4] * 100)
-            x = int(Bounds[i][0][0])
-            y = int(Bounds[i][0][1])
-            h = int(Bounds[i][0][2] / 2)
-            w = int(Bounds[i][0][3] / 2)
+            back_len = int(bounds[0][4] * 100)
+            x = int(bounds[0][0])
+            y = int(bounds[0][1])
+            h = int(bounds[0][2] / 2)
+            w = int(bounds[0][3] / 2)
 
-            img0 = cv2.imread(base2 + str(back_len) + ".jpg")[y - h:y + h, x - w:x + w]
-            img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
+            last_frame = int(files[- 1].stem)
 
-            for idx in range(np.min((26750, 2 * back_len)), 90, -5):
-                img1 = cv2.imread(base2 + str(idx) + ".jpg")[y - h:y + h, x - w:x + w]
-                img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+            if back_len > last_frame:
+                back_len = int(back_len / 10)
 
-                stat.append(metrics.structural_similarity(img0, img1, multichannel=True, win_size=3))
+            if back_len <= last_frame:
+                img0 = cv2.imread(os.fspath(base2 / (str(back_len) + ".jpg")))[y - h:y + h, x - w:x + w]
+                img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
 
-            for idx in range(0, len(stat) - 35):
-                stat[idx] = np.max((stat[idx:idx + 35]))
+                data.append({
+                    'relative_path': VIDEOS[(all_bounds[bounds][1]) - 1].split('.')[0],
+                    'img0': str(back_len) + ".jpg",
+                    'imgs1': [],
+                    'stat': []
+                })
 
-            All_statfn.append(stat)
+                for idx in range(np.min((26750, 2 * back_len)), 90, -5):
+                    if idx % 10 == 0 and idx <= last_frame:
+                        img1 = cv2.imread(os.fspath(base2 / (str(idx) + ".jpg")))[y - h:y + h, x - w:x + w]
+                        img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
 
-    Times = {}
+                        ssim = metrics.structural_similarity(img0, img1, multichannel=True, win_size=3)
+
+                        data[-1]['imgs1'].append(str(idx) + ".jpg")
+                        data[-1]["stat"].append(ssim)
+
+                        stat.append(ssim)
+
+                for idx in range(0, len(stat) - 35):
+                    stat[idx] = np.max((stat[idx:idx + 35]))
+                    data[-1]["stat"][idx] = np.max((stat[idx:idx + 35]))
+
+                all_statfn.append(stat)
+
+    times = {}
     count = 0
-    for stat in All_statfn:
-        Times[Bounds[count][1]] = 999
+    for stat in all_statfn:
+        times[all_bounds[count][1]] = 999
         count += 1
 
     count = 0
-    for stat in All_statfn:
+    for stat in all_statfn:
+        image_counter = 0
 
         if np.max(stat) > 0.5 and np.min(stat) < 0.65:
             stat = savgol_filter(stat, 21, 1)
             nstat = (list(reversed(stat)) - min(stat)) / (max(stat) - min(stat))
-            Found = check_continual(nstat, 150)
-            if Found:
-                Times[Bounds[count][1]] = np.min((Times[Bounds[count][1]], np.min(
-                    ((np.where(np.array(nstat) >= 0.4)[0][0]) * 5 / 30, Times[Bounds[count][1]]))))
+            found = check_continual(nstat, 150)
+            if found:
+                times[all_bounds[count][1]] = np.min((times[all_bounds[count][1]], np.min(
+                    ((np.where(np.array(nstat) >= 0.4)[0][0]) * 5 / 30, times[all_bounds[count][1]]))))
+
+            image_counter += 1
 
         count += 1
 
-    return Times, All_statfn
+    return times, all_statfn
 
 
-def backtrack1(Bounds, Base):
-    All_statfn = list()
-    for i in range(0, len(Bounds)):
-        print(i)
-        base2 = Base + str(Bounds[i][1]) + "/"
-        files = natsorted(os.listdir(base2))
+def backtrack1(all_bounds: Bounds, base: os.PathLike[str]) -> Tuple[Times, All_Statfn]:
+    base = pathlib.Path(base)
+    all_statfn = list()
+    data = list()
+
+    for bounds in all_bounds:
+        base / pathlib.PurePath(VIDEOS[(bounds[1] - 1)]).with_suffix("")
+
+        base2 = base / pathlib.PurePath(VIDEOS[(bounds[1])]).with_suffix("")
+
+        files = natsort.natsorted(frozenset(base2.glob("*.jpg")), alg=natsort.ns.PATH)
+
         stat = list()
-        back_track = int(Bounds[i][0][4] * 100)
-        x = int(Bounds[i][0][0])
-        y = int(Bounds[i][0][1])
-        h = int(Bounds[i][0][2] / 2)
-        w = int(Bounds[i][0][3] / 2)
+        back_track = int(bounds[0][4] * 100)
+        x = int(bounds[0][0])
+        y = int(bounds[0][1])
+        h = int(bounds[0][2] / 2)
+        w = int(bounds[0][3] / 2)
 
-        img0 = cv2.imread(base2 + str(back_track) + ".jpg")[y - h:y + h, x - w:x + w]
-        img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
+        last_frame = int(files[-1].stem)
 
-        for idx in range(np.min((26750, 2 * back_track)), 90, -5):
-            img1 = cv2.imread(base2 + str(idx) + ".jpg")[y - h:y + h, x - w:x + w]
-            img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+        if back_track > last_frame:
+            back_track = int(back_track / 10)
 
-            stat.append(metrics.structural_similarity(img0, img1, multichannel=True, win_size=3))
+        if back_track <= last_frame:
+            img0 = cv2.imread(os.fspath(base2 / (str(back_track) + ".jpg")))[y - h:y + h, x - w:x + w]
+            img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
 
-        for idx in range(0, len(stat) - 35):
-            stat[idx] = np.max((stat[idx:idx + 35]))
+            for idx in range(np.min((26750, 2 * back_track)), 90, -5):
+                if idx % 10 == 0:
+                    img1 = cv2.imread(os.fspath(base2 / (str(idx) + ".jpg")))[y - h:y + h, x - w:x + w]
+                    img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
 
-        All_statfn.append(stat)
+                    data.append({
+                        'relative_path': VIDEOS[(bounds[1]) - 1].split('.')[0],
+                        'img0': str(back_track) + ".jpg",
+                        'imgs1': [],
+                        'stat': []
+                    })
 
-    Times = {}
+                    stat.append(metrics.structural_similarity(img0, img1, multichannel=True, win_size=3))
+
+            for idx in range(0, len(stat) - 35):
+                stat[idx] = np.max((stat[idx:idx + 35]))
+                data[0]["stat"][idx] = np.max((stat[idx:idx + 35]))
+
+            all_statfn.append(stat)
+
+    times = {}
     count = 0
-    for stat in All_statfn:
-        Times[Bounds[count][1]] = 999
+    for stat in all_statfn:
+        times[all_bounds[count][1]] = 999
 
         count += 1
 
     count = 0
-    for stat in All_statfn:
+    image_counter = 0
+
+    for stat in all_statfn:
         stat = reject_outliers(stat)
         if np.max(stat) > 0.5 and np.min(stat) < 0.55:
             stat = savgol_filter(stat, 21, 1)
 
             nstat = (list(reversed(stat)) - min(stat)) / (max(stat) - min(stat))
-            Found = check_continual(nstat, 150)
-            if Found:
-                if (np.where(np.array(nstat) >= 0.4))[0][0] != 0:
-                    Times[Bounds[count][1]] = np.min((Times[Bounds[count][1]], np.min(
-                        ((np.where(np.array(nstat) >= 0.5)[0][0]) * 5 / 30, Times[Bounds[count][1]]))))
+            found = check_continual(nstat, 150)
 
+            if found:
+                if (np.where(np.array(nstat) >= 0.4))[0][0] != 0:
+                    times[all_bounds[count][1]] = np.min((times[all_bounds[count][1]], np.min(
+                        ((np.where(np.array(nstat) >= 0.5)[0][0]) * 5 / 30, times[all_bounds[count][1]]))))
+
+                image_counter += 1
         count += 1
 
-    return Times, All_statfn
+    return times, all_statfn
