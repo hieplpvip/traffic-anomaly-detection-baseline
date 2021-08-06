@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import pathlib
 import time
@@ -97,6 +98,11 @@ if __name__ == "__main__":
     print("average images")
     for video_path in tqdm.tqdm(video_folders):
         process_frames(dest_dir_processed, video_path, dest_dir)
+
+    # Store relative paths to root directory.
+    with open(repo_path / "dataset.json", "w") as f:
+        relative_paths = list(map(lambda v: os.fspath(v.relative_to(root)), video_names))
+        json.dump(relative_paths, f)
 
     end_time = time.perf_counter()
     res = time.strftime("%Hh:%Mm:%Ss", time.gmtime(end_time - start_time))
