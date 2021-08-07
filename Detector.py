@@ -8,6 +8,7 @@ import os
 import pathlib
 
 import numpy as np
+import pandas as pd
 
 from vid_utils import *
 
@@ -133,12 +134,16 @@ Times2 = {key: val for key, val in Times2.items() if val != 999}
 Times2 = {key: val for key, val in Times2.items() if val >= 40}
 
 # In[23]:
+data = {"video_id": [], "start_second": [], "is_anomaly": []}
+for vid, start_second in Times.items():
+    data.get("video_id").append(vid)
+    data.get("start_second").append(start_second)
+    data.get("is_anomaly").append(1)
 
-with open(repo_path / "Result.txt", "w") as file1:
-    for x in Times:
-        file1.write('{0:2d} {1:3d} {2:1d}'.format(x, int(Times[x]), 1))
-        file1.write("\n")
+for vid, start_second in Times2.items():
+    data.get("video_id").append(vid)
+    data.get("start_second").append(start_second)
+    data.get("is_anomaly").append(1)
 
-    for x in Times2:
-        file1.write('{0:2d} {1:3d} {2:1d}'.format(x, int(Times2[x]), 1))
-        file1.write("\n")
+df = pd.DataFrame(data).sort_values(by=["video_id"])
+df.to_csv(repo_path / "Result.csv", index=False)
