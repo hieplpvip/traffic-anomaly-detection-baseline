@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import pathlib
 
@@ -69,3 +70,8 @@ for video_path in tqdm.tqdm(videos_folder):
                 else:
                     cv2.imwrite(os.fspath(processed_video_path / filename), img * 0)
                 former_im = now_im
+
+# Store relative paths to root directory.
+with open(repo_path / "dataset.json", "w") as f:
+    relative_paths = list(map(lambda v: os.fspath(v.relative_to(root)), video_names))
+    json.dump(relative_paths, f)
