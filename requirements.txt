@@ -6,3 +6,4 @@ kneed
 natsort
 scikit-learn
 tqdm
+pandas
