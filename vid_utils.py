@@ -372,7 +372,7 @@ def change_detect(base):
     change_cam = list()
     loc = list()
     for idx, stat3 in enumerate(all_stat3, start=1):
-        if np.mean(stat3) - np.min(stat3) > 0.06:
+        if stat3 and np.mean(stat3) - np.min(stat3) > 0.06:
             change_cam.append(idx)
             loc.append(-2 + np.where(np.array(stat3) == np.min(stat3))[0][0])
 
