@@ -7,3 +7,5 @@ natsort
 scikit-learn
 tqdm
 pandas
+ipython
+Pillow

@@ -6,6 +6,8 @@ from collections import Counter
 import cv2
 import natsort
 import numpy as np
+from IPython import display
+from PIL import Image
 from kneed import KneeLocator
 from scipy.signal import savgol_filter
 from skimage import metrics
@@ -23,6 +25,23 @@ def get_videos():
 
 
 VIDEOS = get_videos()
+
+
+def cv2_imshow(a):
+    """A replacement for cv2.imshow() for use in Jupyter notebooks.
+  Args:
+    a : np.ndarray. shape (N, M) or (N, M, 1) is an NxM grayscale image. shape
+      (N, M, 3) is an NxM BGR color image. shape (N, M, 4) is an NxM BGRA color
+      image.
+  """
+    a = a.clip(0, 255).astype('uint8')
+    # cv2 stores colors as BGR; convert to RGB
+    if a.ndim == 3:
+        if a.shape[2] == 4:
+            a = cv2.cvtColor(a, cv2.COLOR_BGRA2RGBA)
+        else:
+            a = cv2.cvtColor(a, cv2.COLOR_BGR2RGB)
+    display.display(Image.fromarray(a))
 
 
 def Kmeans_clu(data, k):
@@ -449,6 +468,19 @@ def backtrack(Bounds, PT, Base):
             nstat = (list(reversed(stat)) - min(stat)) / (max(stat) - min(stat))
             Found = check_continual(nstat, 150)
             if Found:
+                frame_image = video["imgs1"][image_counter]
+
+                print("video name:", video_name)
+                print("frame_image:", frame_image)
+
+                img = cv2.imread(os.fspath(Base / video_name / frame_image), cv2.IMREAD_UNCHANGED)
+                scale_percent = 50  # percent of original size
+                width = int(img.shape[1] * scale_percent / 100)
+                height = int(img.shape[0] * scale_percent / 100)
+                dim = (width, height)
+                resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+                cv2_imshow(resized)
+
                 Times[Bounds[count][1]] = np.min((Times[Bounds[count][1]], np.min(
                     ((np.where(np.array(nstat) >= 0.4)[0][0]) * 5 / 30, Times[Bounds[count][1]]))))
 
@@ -528,6 +560,18 @@ def backtrack1(Bounds, Base):
             Found = check_continual(nstat, 150)
 
             if Found:
+                frame_image = video["img0"]
+                print("video name:", video_name)
+                print("frame_image:", frame_image)
+                img = cv2.imread(os.fspath(Base / video_name / frame_image), cv2.IMREAD_UNCHANGED)
+
+                scale_percent = 50  # percent of original size
+                width = int(img.shape[1] * scale_percent / 100)
+                height = int(img.shape[0] * scale_percent / 100)
+                dim = (width, height)
+                resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+                cv2_imshow(resized)
+
                 if (np.where(np.array(nstat) >= 0.4))[0][0] != 0:
                     Times[Bounds[count][1]] = np.min((Times[Bounds[count][1]], np.min(
                         ((np.where(np.array(nstat) >= 0.5)[0][0]) * 5 / 30, Times[Bounds[count][1]]))))
