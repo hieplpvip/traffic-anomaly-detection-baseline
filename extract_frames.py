@@ -24,19 +24,19 @@ if __name__ == "__main__":
         :return: Directory containing the stored frames of `video_path`
         """
         vc = cv2.VideoCapture(os.fspath(video_path))
-        c = 1
         if vc.isOpened():
             pic_path = dest_dir / video_path.relative_to(root).with_suffix("")
             pic_path.mkdir(parents=True, exist_ok=True)
+            c = time_f
+            vc.set(cv2.CAP_PROP_POS_FRAMES, c - 1)
             while vc.grab():
                 _, frame = vc.retrieve()
-                if c % time_f == 0:
-                    img_path = os.fspath(pic_path / (str(c) + '.jpg'))
-                    cv2.imwrite(img_path, frame)
-                    ori_images_txt.write(img_path + "\n")
-
-                c += 1
+                img_path = os.fspath(pic_path / (str(c) + '.jpg'))
+                cv2.imwrite(img_path, frame)
+                ori_images_txt.write(img_path + "\n")
                 cv2.waitKey(1)
+                c += time_f
+                vc.set(cv2.CAP_PROP_POS_FRAMES, c - 1)
             vc.release()
             return pic_path
 
