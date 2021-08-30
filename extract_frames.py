@@ -3,7 +3,7 @@ import concurrent.futures
 import json
 import os
 import pathlib
-import sys
+import decord
 import subprocess
 import time
 from typing import TextIO
@@ -15,37 +15,6 @@ import tqdm
 
 if __name__ == "__main__":
     repo_path = pathlib.Path(__file__).resolve().parent
-
-
-    def install_decord(repo_path: pathlib.Path):
-        # Install decord
-        sudo = subprocess.Popen(["sudo", "add-apt-repository", "-y", "ppa:jonathonf/ffmpeg-4"])
-        sudo.wait()
-        sudo = subprocess.Popen(["sudo", "apt-get", "update"])
-        sudo.wait()
-        sudo = subprocess.Popen(
-            ["sudo", "apt-get", "install", "-y", "build-essential", "python3-dev", "python3-setuptools",
-             "make", "cmake", "ffmpeg", "libavcodec-dev", "libavfilter-dev", "libavformat-dev",
-             "libavutil-dev"])
-        os.chdir(repo_path)
-        git = subprocess.Popen(
-            ["git", "clone", "--recursive", "https://github.com/dmlc/decord"])
-        git.wait()
-        build_dir = repo_path / "decord/build"
-        build_dir.mkdir(exist_ok=True)
-        os.chdir(build_dir)
-        sudo.wait()
-        cmake = subprocess.Popen(["cmake", "..", "-DUSE_CUDA=ON", "-DCMAKE_BUILD_TYPE=Release"])
-        cmake.wait()
-        cmake = subprocess.Popen("make")
-        cmake.wait()
-        os.chdir("../python")
-        os.system('python3 setup.py install --user')
-        sys.path.append(os.fspath(repo_path / "decord/python"))
-
-
-    install_decord(repo_path)
-    import decord
 
 
     def extract_frames(dest_dir: pathlib.Path, video_path: pathlib.PurePath, root: pathlib.PurePath, time_f: int,
@@ -150,12 +119,17 @@ if __name__ == "__main__":
     except subprocess.CalledProcessError:
         ctx = decord.cpu(0)
 
-    with open(repo_path / "ori_images.txt", "w") as ori_images_txt:
-        for video_path in tqdm.tqdm(video_names):
-            print(os.fspath(video_path.relative_to(root)))
-            videos_folder = extract_frames(dest_dir, video_path, root, timeF, ori_images_txt, ctx)
-            print("Finished extracted frames")
-            process_frames(dest_dir_processed, videos_folder, dest_dir)
+    with open(repo_path / "ori_images.txt", "w") as ori_images_txt, concurrent.futures.ThreadPoolExecutor() as t_exec, \
+            concurrent.futures.ProcessPoolExecutor() as p_executor:
+        fs = [t_exec.submit(extract_frames, dest_dir, v, root, timeF, ori_images_txt, ctx) for v in video_names]
+        for f in concurrent.futures.as_completed(fs):
+            p_executor.submit(process_frames, dest_dir_processed, f.result(), dest_dir)
+        # for video_path in tqdm.tqdm(video_names):
+        #    t_exec.submit(extract_frames, dest_dir, )
+        #    print(os.fspath(video_path.relative_to(root)))
+        #    videos_folder = extract_frames(dest_dir, video_path, root, timeF, ori_images_txt, ctx)
+        #    print("Finished extracted frames")
+        #    process_frames(dest_dir_processed, videos_folder, dest_dir)
 
     # Store relative paths to root directory.
     with open(repo_path / "dataset.json", "w") as f:
