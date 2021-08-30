@@ -4,8 +4,12 @@ import subprocess
 import sys
 
 
-def install_decord(repo_path: pathlib.Path):
-    # Install decord
+def install_decord(repo_path: pathlib.Path) -> None:
+    """
+
+    :param repo_path: Directory where it will be installed.
+    :return:
+    """
     sudo = subprocess.Popen(["sudo", "add-apt-repository", "-y", "ppa:jonathonf/ffmpeg-4"])
     sudo.wait()
     sudo = subprocess.Popen(["sudo", "apt-get", "update"])
@@ -16,7 +20,7 @@ def install_decord(repo_path: pathlib.Path):
          "libavutil-dev"])
     os.chdir(repo_path)
     git = subprocess.Popen(
-        ["git", "clone", "--recursive", "https://github.com/dmlc/decord"])
+        ["git", "clone", "--depth", "1", "--recursive", "https://github.com/dmlc/decord"])
     git.wait()
     build_dir = repo_path / "decord/build"
     build_dir.mkdir(exist_ok=True)
