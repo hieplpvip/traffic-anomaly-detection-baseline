@@ -11,6 +11,7 @@ from typing import TextIO
 import cv2
 import natsort
 import numpy as np
+import tqdm
 
 if __name__ == "__main__":
     repo_path = pathlib.Path(__file__).resolve().parent
@@ -27,7 +28,8 @@ if __name__ == "__main__":
              "make", "cmake", "ffmpeg", "libavcodec-dev", "libavfilter-dev", "libavformat-dev",
              "libavutil-dev"])
         os.chdir(repo_path)
-        git = subprocess.Popen(["git", "clone", "--recursive", "https://github.com/dmlc/decord"])
+        git = subprocess.Popen(
+            ["git", "clone", "--recursive", "https://github.com/dmlc/decord"])
         git.wait()
         build_dir = repo_path / "decord/build"
         build_dir.mkdir(exist_ok=True)
@@ -38,8 +40,8 @@ if __name__ == "__main__":
         cmake = subprocess.Popen("make")
         cmake.wait()
         os.chdir("../python")
-        sys.path.append(os.fspath(repo_path / "decord/python"))
         os.system('python3 setup.py install --user')
+        sys.path.append(os.fspath(repo_path / "decord/python"))
 
 
     install_decord(repo_path)
@@ -57,16 +59,39 @@ if __name__ == "__main__":
         :param ctx: The context to decode the video file.
         :return: Directory containing the stored frames of `video_path`
         """
-        vr = decord.VideoReader(os.fspath(video_path), ctx=ctx)
         pic_path = dest_dir / video_path.relative_to(root).with_suffix("")
         pic_path.mkdir(parents=True, exist_ok=True)
-        frames_indices = list(range(time_f - 1, len(vr), time_f))
-        frames = vr.get_batch(frames_indices).as_numpy()
-        for c, frame in zip(frames_indices, frames):
-            img_path = os.fspath(pic_path / (str(c + 1) + '.jpg'))
-            cv2.imwrite(img_path, frame)
-            ori_images_txt.write(img_path + "\n")
-            return pic_path
+        try:
+            vr = decord.VideoReader(os.fspath(video_path), ctx=ctx)
+            vr.skip_frames(time_f)
+            vr.seek(99)
+            size = len(vr)
+            frames_indices = range(time_f - 1, size, time_f)
+            print("# of frames:", size)
+            print("Frame shape:", vr[0].shape)
+            for c in frames_indices:
+                img_path = os.fspath(pic_path / (str(c + 1) + '.jpg'))
+                cv2.imwrite(img_path, vr.next().asnumpy())
+                ori_images_txt.write(img_path + "\n")
+                # The rest fixes decord._ffi.base.DECORDError: [`video`.asf] Failed to measure duration/frame-count due
+                # to broken metadata.
+        except decord.DECORDError:
+            vc = cv2.VideoCapture(os.fspath(video_path))
+            size = vc.get(cv2.CAP_PROP_FRAME_COUNT)
+            print("# of frames:", size)
+            if vc.isOpened():
+                c = 1
+                while vc.grab():
+                    _, frame = vc.retrieve()
+                    if c % time_f == 0:
+                        img_path = os.fspath(pic_path / (str(c) + '.jpg'))
+                        cv2.imwrite(img_path, frame)
+                        ori_images_txt.write(img_path + "\n")
+
+                    c += 1
+                    cv2.waitKey(1)
+                vc.release()
+        return pic_path
 
 
     def process_frames(dest_dir_processed: pathlib.Path, video_path: pathlib.Path, dest_dir: pathlib.PurePath) -> None:
@@ -116,7 +141,7 @@ if __name__ == "__main__":
     dest_dir = repo_path / "ori_images"
     video_names = frozenset.union(*frozenset(map(lambda e: frozenset(root.rglob("*." + e)), ext)))
     video_names = natsort.natsorted(video_names, alg=natsort.ns.PATH)
-    videos_folder = None
+    videos_folders = []
     dest_dir_processed = repo_path / "processed_images"
 
     try:
@@ -125,13 +150,12 @@ if __name__ == "__main__":
     except subprocess.CalledProcessError:
         ctx = decord.cpu(0)
 
-    with open(repo_path / "ori_images.txt", "w") as ori_images_txt, \
-            concurrent.futures.ProcessPoolExecutor() as p_exec, concurrent.futures.ThreadPoolExecutor() as t_exec:
-        fs = [t_exec.submit(extract_frames, dest_dir, video_path, root, timeF, ori_images_txt, ctx)
-              for video_path in video_names]
-
-        for future in concurrent.futures.as_completed(fs):
-            p_exec.submit(process_frames, dest_dir_processed, future.result(), dest_dir)
+    with open(repo_path / "ori_images.txt", "w") as ori_images_txt:
+        for video_path in tqdm.tqdm(video_names):
+            print(os.fspath(video_path.relative_to(root)))
+            videos_folder = extract_frames(dest_dir, video_path, root, timeF, ori_images_txt, ctx)
+            print("Finished extracted frames")
+            process_frames(dest_dir_processed, videos_folder, dest_dir)
 
     # Store relative paths to root directory.
     with open(repo_path / "dataset.json", "w") as f:
