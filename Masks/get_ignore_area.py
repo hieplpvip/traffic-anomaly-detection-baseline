@@ -1,3 +1,4 @@
+import concurrent.futures
 import os
 import pathlib
 import time
@@ -70,8 +71,9 @@ if __name__ == "__main__":
     masks_txt = natsort.natsorted(masks_txt, alg=natsort.ns.PATH)
     mas_dir = masks_dir / "Mas"
 
-    for mask_txt in tqdm.tqdm(masks_txt):
-        ignore_area(masks_dir, mask_txt, mas_dir)
+    with concurrent.futures.ThreadPoolExecutor() as t_exec:
+        for mask_txt in tqdm.tqdm(masks_txt):
+            t_exec.submit(ignore_area, masks_dir, mask_txt, mas_dir)
 
     end_time = time.perf_counter()
     res = time.strftime("%Hh:%Mm:%Ss", time.gmtime(end_time - start_time))

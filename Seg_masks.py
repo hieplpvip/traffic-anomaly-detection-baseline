@@ -2,7 +2,7 @@
 # coding: utf-8
 
 # In[1]:
-
+import concurrent.futures
 import json
 import pathlib
 import time
@@ -45,8 +45,9 @@ if __name__ == "__main__":
 
     names = ("car", "bus", "truck")
 
-    for frame in tqdm.tqdm(D):
-        seg_masks(frame)
+    with concurrent.futures.ThreadPoolExecutor() as t_exec:
+        for frame in tqdm.tqdm(D):
+            t_exec.submit(seg_masks, frame)
 
     end_time = time.perf_counter()
     res = time.strftime("%Hh:%Mm:%Ss", time.gmtime(end_time - start_time))
