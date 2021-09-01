@@ -1,66 +1,94 @@
-import glob
+import argparse
 import os
-from pathlib import Path
+import pathlib
+import time
 
 import cv2
+import natsort
 import numpy as np
 import tqdm
 
-root = "../Data/test-data/"
-dest_dir = "ori_images/"
-video_names = [str(i)+'.mp4' for i in range(1,101)]
-print("capture videos")
-for video_name in tqdm.tqdm(video_names):
-    file_name = video_name
-    folder_name = dest_dir+file_name.split('.')[0]
-    os.makedirs(folder_name,exist_ok=True)
-    vc = cv2.VideoCapture(root+video_name)
-    c = 1
+
+def extract_frames(dest_dir: pathlib.Path, video_path: pathlib.PurePath, root: pathlib.PurePath) -> pathlib.Path:
+    """
+    :param dest_dir: Directory where the extracted frames will be stored.
+    :param video_path: The absolute path of the video.
+    :param root: Directory containing the videos to be processed.
+    :return: Directory containing the stored frames of `video_path`
+    """
+    vc = cv2.VideoCapture(os.fspath(video_path))
     if vc.isOpened():
-        rval, frame = vc.read()
-    else:
-        rval = False
+        pic_path = dest_dir / video_path.relative_to(root).with_suffix("")
+        pic_path.mkdir(parents=True, exist_ok=True)
+        c = 1
+        timeF = 100
+        while vc.grab():
+            if c % timeF == 0:
+                _, frame = vc.retrieve()
+                cv2.imwrite(os.fspath(pic_path / (str(c) + '.jpg')), frame)
+            c += 1
+            cv2.waitKey(1)
+        vc.release()
+        return pic_path
 
-    timeF =100
-    pic_path = folder_name+'/'
 
-    while rval: 
-        if (c % timeF == 0): 
-            cv2.imwrite(pic_path + str(c) + '.jpg', frame) 
-        c = c + 1
-        cv2.waitKey(1)
-        rval, frame = vc.read()
-    vc.release()
-
-dest_dir_processed = "processed_images/"
-
-if not os.path.isdir(dest_dir_processed):
-    os.mkdir(dest_dir_processed)
-print("average images")
-for i in tqdm.tqdm(range(1,101)):
-    video_name = str(i)
-    path_file_number=glob.glob(os.path.join(dest_dir,video_name,'*.jpg')) 
+def process_frames(dest_dir_processed: pathlib.Path, video_path: pathlib.Path, dest_dir: pathlib.PurePath) -> None:
+    """
+    :param dest_dir_processed: Directory where the processed frames will be stored.
+    :param video_path: The absolute path containing the frames of a video.
+    :param dest_dir: Directory where the extracted frames are stored.
+    :return: None
+    """
+    path_file_number = natsort.natsorted(video_path.glob("*.jpg"), alg=natsort.ns.PATH)
     internal_frame = 4
     start_frame = 100
-    video_name = str(i)
     nums_frames = len(path_file_number)
-    alpha=0.1
-    Path(dest_dir_processed+video_name).mkdir(exist_ok=True)
+    alpha = 0.1
+    processed_video_path = dest_dir_processed / video_path.relative_to(dest_dir)
+    processed_video_path.mkdir(parents=True, exist_ok=True)
 
-    for j in range(4,5):
+    former_im = cv2.imread(os.fspath(video_path / "100.jpg"))
+    for j in range(4, 5):
         internal_frame = 100
-        num_pic = int(nums_frames)
-        former_im = cv2.imread(dest_dir+"%d/100.jpg"%i)
-        img = cv2.imread(os.path.join(dest_dir,video_name,str(start_frame)+'.jpg'))
-        for i in range(num_pic):
-            # print(os.path.join(dest_dir,video_name,str(start_frame)+'.jpg'))
-            # print(os.path.join(dest_dir,video_name,str(i*internal_frame+start_frame)+'.jpg'))
-            now_im = cv2.imread(os.path.join(dest_dir,video_name,str(i*internal_frame+start_frame)+'.jpg'))
-            if np.mean(np.abs(now_im-former_im))>5:
-                img = img*(1-alpha)+now_im*alpha
-                cv2.imwrite(dest_dir_processed+video_name+'/'+str(i*internal_frame+start_frame)
-                        +'_'+str(j)+'.jpg',img)
+        img = cv2.imread(os.fspath(video_path / (str(start_frame) + '.jpg')))
+        for n in range(nums_frames):
+            now_im = cv2.imread(os.fspath(video_path / (str(n * internal_frame + start_frame) + '.jpg')))
+            filename = str(n * internal_frame + start_frame) + '_' + str(j) + '.jpg'
+            if np.mean(np.abs(now_im - former_im)) > 5:
+                img = img * (1 - alpha) + now_im * alpha
+                cv2.imwrite(os.fspath(processed_video_path / filename), img)
             else:
-                cv2.imwrite(dest_dir_processed+video_name+'/'+str(i*internal_frame+start_frame)
-                        +'_'+str(j)+'.jpg',img*0)
+                cv2.imwrite(os.fspath(processed_video_path / filename), img * 0)
             former_im = now_im
+
+
+if __name__ == "__main__":
+    start_time = time.perf_counter()
+    parser = argparse.ArgumentParser(description="Extract frames from directory containing videos.")
+    parser.add_argument("--root", type=pathlib.Path, help="directory containing videos to be processed",
+                        default=pathlib.Path("../Data/test-data/"))
+    parser.add_argument("--ext", type=str, help="extensions of the videos within the directory to be processed",
+                        default="mp4")
+    args = parser.parse_args()
+
+    root = args.root.resolve()
+    ext = args.ext.split(" ")
+
+    repo_path = pathlib.Path(__file__).resolve().parent
+    dest_dir = repo_path / "ori_images"
+    video_names = frozenset.union(*frozenset(map(lambda e: frozenset(root.rglob("*." + e)), ext)))
+    video_names = natsort.natsorted(video_names, alg=natsort.ns.PATH)
+    video_folders = []
+    print("capture videos")
+    for video_path in tqdm.tqdm(video_names):
+        pic_path = extract_frames(dest_dir, video_path, root)
+        video_folders.append(pic_path)
+
+    dest_dir_processed = repo_path / "processed_images"
+    print("average images")
+    for video_path in tqdm.tqdm(video_folders):
+        process_frames(dest_dir_processed, video_path, dest_dir)
+
+    end_time = time.perf_counter()
+    res = time.strftime("%Hh:%Mm:%Ss", time.gmtime(end_time - start_time))
+    print(f"Finished in {res}")
