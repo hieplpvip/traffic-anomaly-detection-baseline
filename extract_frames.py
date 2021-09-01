@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 import pathlib
 import subprocess
@@ -84,6 +85,14 @@ def process_frames(dest_dir_processed: pathlib.Path, video_path: pathlib.Path, d
 
 
 if __name__ == "__main__":
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    fmt = logging.Formatter(
+        "%(levelname)s - %(module)s - %(funcName)s - %(message)s")
+    hdlr = logging.StreamHandler()
+    hdlr.setLevel(logging.DEBUG)
+    hdlr.setFormatter(fmt)
+    logger.addHandler(hdlr)
     start_time = time.perf_counter()
     parser = argparse.ArgumentParser(description="Extract frames from directory containing videos.")
     parser.add_argument("--root", type=pathlib.Path, help="directory containing videos to be processed",
@@ -107,6 +116,7 @@ if __name__ == "__main__":
         subprocess.check_output("nvidia-smi")
         ctx = decord.gpu(0)
     except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.warning("NVIDIA GPU device not found.")
         ctx = decord.cpu(0)
 
     with open(repo_path / "ori_images.txt", "w") as ori_images_txt:
