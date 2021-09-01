@@ -1,3 +1,4 @@
+import concurrent.futures
 import os
 import pathlib
 import time
@@ -5,7 +6,6 @@ from typing import TextIO
 
 import cv2
 import natsort
-import tqdm
 
 
 def extract_processed_frames(base2: pathlib.Path, frames_folder: pathlib.Path, base: pathlib.Path,
@@ -36,10 +36,10 @@ if __name__ == "__main__":
 
     frames_folders = frozenset(map(lambda e: e.parent, base.rglob("*.jpg")))
     frames_folders = natsort.natsorted(frames_folders, alg=natsort.ns.PATH)
-    with open(repo_path / "processed_images2.txt", "w") as image_text_file:
-        for frames_folder in tqdm.tqdm(frames_folders):
-            print(" ", os.fspath(frames_folder.relative_to(base)))
-            extract_processed_frames(base2, frames_folder, base, image_text_file)
+    with open(repo_path / "processed_images2.txt",
+              "w") as image_text_file, concurrent.futures.ThreadPoolExecutor() as executor:
+        fs = [executor.submit(extract_processed_frames, base2, frames_folder, base, image_text_file)
+              for frames_folder in frames_folders]
 
     end_time = time.perf_counter()
     res = time.strftime("%Hh:%Mm:%Ss", time.gmtime(end_time - start_time))

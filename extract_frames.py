@@ -1,4 +1,5 @@
 import argparse
+import concurrent.futures
 import json
 import logging
 import math
@@ -149,10 +150,12 @@ if __name__ == "__main__":
         logger.warning("NVIDIA GPU device not found.")
         ctx = decord.cpu(0)
 
-    with open(repo_path / "ori_images.txt", "w") as ori_images_txt:
-        for video_path in tqdm.tqdm(video_names):
-            pic_path = extract_frames(dest_dir, video_path, root, time_f, ori_images_txt, ctx)
-            process_frames(dest_dir_processed, pic_path, dest_dir)
+    with open(repo_path / "ori_images.txt", "w") as ori_images_txt, \
+            concurrent.futures.ProcessPoolExecutor() as p_exec, concurrent.futures.ThreadPoolExecutor() as t_exec:
+        fs = [t_exec.submit(extract_frames, dest_dir, video_path, root, time_f, ori_images_txt, ctx)
+              for video_path in video_names]
+        for future in tqdm.tqdm(concurrent.futures.as_completed(fs)):
+            p_exec.submit(process_frames, dest_dir_processed, future.result(), dest_dir)
 
     # Store relative paths to root directory.
     with open(repo_path / "dataset.json", "w") as f:
