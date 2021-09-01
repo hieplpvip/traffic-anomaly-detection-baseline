@@ -9,11 +9,13 @@ import numpy as np
 import tqdm
 
 
-def extract_frames(dest_dir: pathlib.Path, video_path: pathlib.PurePath, root: pathlib.PurePath) -> pathlib.Path:
+def extract_frames(dest_dir: pathlib.Path, video_path: pathlib.PurePath, root: pathlib.PurePath,
+                   time_f: int) -> pathlib.Path:
     """
     :param dest_dir: Directory where the extracted frames will be stored.
     :param video_path: The absolute path of the video.
     :param root: Directory containing the videos to be processed.
+    :param time_f: Time frequency.
     :return: Directory containing the stored frames of `video_path`
     """
     vc = cv2.VideoCapture(os.fspath(video_path))
@@ -21,9 +23,8 @@ def extract_frames(dest_dir: pathlib.Path, video_path: pathlib.PurePath, root: p
         pic_path = dest_dir / video_path.relative_to(root).with_suffix("")
         pic_path.mkdir(parents=True, exist_ok=True)
         c = 1
-        timeF = 100
         while vc.grab():
-            if c % timeF == 0:
+            if c % time_f == 0:
                 _, frame = vc.retrieve()
                 cv2.imwrite(os.fspath(pic_path / (str(c) + '.jpg')), frame)
             c += 1
@@ -70,10 +71,12 @@ if __name__ == "__main__":
                         default=pathlib.Path("../Data/test-data/"))
     parser.add_argument("--ext", type=str, help="extensions of the videos within the directory to be processed",
                         default="mp4")
+    parser.add_argument("--freq", type=int, help="time frequency", default=100)
     args = parser.parse_args()
 
     root = args.root.resolve()
     ext = args.ext.split(" ")
+    time_f = args.freq
 
     repo_path = pathlib.Path(__file__).resolve().parent
     dest_dir = repo_path / "ori_images"
@@ -82,7 +85,7 @@ if __name__ == "__main__":
     video_folders = []
     print("capture videos")
     for video_path in tqdm.tqdm(video_names):
-        pic_path = extract_frames(dest_dir, video_path, root)
+        pic_path = extract_frames(dest_dir, video_path, root, time_f)
         video_folders.append(pic_path)
 
     dest_dir_processed = repo_path / "processed_images"
