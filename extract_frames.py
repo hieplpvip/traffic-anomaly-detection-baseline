@@ -1,18 +1,16 @@
 import argparse
 import json
 import logging
-import math
 import os
 import pathlib
 import subprocess
 import time
-from typing import TextIO, Dict
+from typing import TextIO
 
 import cv2
 import decord
 import natsort
 import numpy as np
-import pandas as pd
 import tqdm
 
 
@@ -86,62 +84,37 @@ def process_frames(dest_dir_processed: pathlib.Path, video_path: pathlib.Path, d
                 former_im = now_im
 
 
-def drop_columns(dfs: Dict) -> None:
-    for year in dfs.keys():
-        # Replace empty values with NaN
-        dfs[year].replace("", math.nan, inplace=True)
-        dfs[year].replace("NA", math.nan, inplace=True)
-
-        # Drop NaN values.
-        columns = dfs[year].columns
-        dfs[year].columns = pd.RangeIndex(0, len(columns))
-        dfs[year].dropna(subset=[7, 8, 9], inplace=True)
-
-        # Drop unnecessary columns
-        dfs[year].columns = columns
-        dfs[year].drop(columns=list(dfs[year].columns[0:3]) + [dfs[year].columns[5]]
-                               + list(dfs[year].columns[10:]), inplace=True)
-        dfs[year] = dfs[year].astype(int, errors="ignore")
-
-
 if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)
-    fmt = logging.Formatter(
-        "%(levelname)s - %(module)s - %(funcName)s - %(message)s")
+    fmt = logging.Formatter("%(levelname)s - %(module)s - %(funcName)s - %(message)s")
     hdlr = logging.StreamHandler()
     hdlr.setLevel(logging.DEBUG)
     hdlr.setFormatter(fmt)
     logger.addHandler(hdlr)
     start_time = time.perf_counter()
     parser = argparse.ArgumentParser(description="Extract frames from directory containing videos.")
-    parser.add_argument("--root", type=pathlib.Path, help="directory containing videos to be processed",
+    parser.add_argument("--root",
+                        type=pathlib.Path,
+                        help="directory containing videos to be processed",
                         default=pathlib.Path("../Data/test-data/"))
-    parser.add_argument("--ext", type=str, help="extensions of the videos within the directory to be processed",
+    parser.add_argument("--ext",
+                        type=str,
+                        help="extensions of the videos within the directory to be processed",
                         default="mp4")
     parser.add_argument("--freq", type=int, help="time frequency", default=100)
-    parser.add_argument("--sh", type=pathlib.Path,
-                        help="spreadsheet containing ground truth data of videos to be processed",
-                        default=pathlib.Path(__file__).parent / "DOT Iowa Accident Labels.ods")
     args = parser.parse_args()
 
     root = args.root.resolve()
     ext = args.ext.split(" ")
     time_f = args.freq
-    spreadsheet = args.sh
 
     repo_path = pathlib.Path(__file__).resolve().parent
     dest_dir = repo_path / "ori_images"
     dest_dir_processed = repo_path / "processed_images"
     video_names = frozenset.union(*frozenset(map(lambda e: frozenset(root.rglob("*." + e)), ext)))
     video_names = natsort.natsorted(video_names, alg=natsort.ns.PATH)
-    dfs = pd.read_excel(spreadsheet, sheet_name=None)
-    drop_columns(dfs)
 
-    chosen_videos = []
-    for df in dfs.values():
-        chosen_videos.append(frozenset(filter(lambda v: np.any(df["Video Name"] == v.name), video_names)))
-    video_names = frozenset.union(*chosen_videos)
     try:
         subprocess.check_output("nvidia-smi")
         ctx = decord.gpu(0)
