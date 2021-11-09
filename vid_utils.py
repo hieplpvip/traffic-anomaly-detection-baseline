@@ -1,4 +1,3 @@
-import itertools
 import json
 import os
 import pathlib
@@ -8,6 +7,7 @@ from typing import Dict, List, Mapping, Sequence, Union, Tuple, Any, Iterable
 import cv2
 import natsort
 import numpy as np
+import tqdm
 from IPython import display
 from PIL import Image
 from kneed import KneeLocator
@@ -15,8 +15,11 @@ from scipy.signal import savgol_filter
 from skimage import metrics
 from sklearn.cluster import KMeans
 
-__all__ = ['kmeans_clu', 'reject_outliers', 'check_continual', 'nms', 'extract_objects', 'extract_cases', 'extract_roi',
-           'extract_roi1', 'extract_bounds', 'extract_bounds1', 'change_detect', 'backtrack', 'backtrack1']
+__all__ = [
+    'kmeans_clu', 'reject_outliers', 'check_continual', 'nms', 'extract_objects', 'extract_cases', 'extract_roi',
+    'extract_roi1', 'extract_bounds', 'extract_bounds1', 'change_detect', 'backtrack', 'backtrack1'
+]
+
 REPO_PATH = pathlib.Path(__file__).resolve().parent
 # Typing hints
 Relative_Coordinates = Mapping[str, float]
@@ -38,7 +41,6 @@ Bounds = List[List[Union[Union[np.ndarray, int], Any]]]
 Bounds1 = List[List[Union[int, Any]]]
 All_Stat3 = List[List[Union[np.ndarray, int, float, complex]]]
 
-
 # --------------------------------------------------------------------------------------------------
 
 
@@ -52,12 +54,13 @@ VIDEOS = get_videos()
 
 
 def cv2_imshow(a: np.ndarray) -> None:
-    """A replacement for cv2.imshow() for use in Jupyter notebooks.
-  Args:
+    '''
+    A replacement for cv2.imshow() for use in Jupyter notebooks.
+    Args:
     a : np.ndarray. shape (N, M) or (N, M, 1) is an NxM grayscale image. shape
-      (N, M, 3) is an NxM BGR color image. shape (N, M, 4) is an NxM BGRA color
-      image.
-  """
+        (N, M, 3) is an NxM BGR color image. shape (N, M, 4) is an NxM BGRA color
+        image.
+    '''
     a = a.clip(0, 255).astype('uint8')
     # cv2 stores colors as BGR; convert to RGB
     if a.ndim == 3:
@@ -100,8 +103,8 @@ def nms(boxes: np.ndarray, overlap_thresh: float) -> Union[np.ndarray, List[floa
 
     # if the bounding boxes integers, convert them to floats --
     # this is important since we'll be doing a bunch of divisions
-    if boxes.dtype.kind == "i":
-        boxes = boxes.astype("float")
+    if boxes.dtype.kind == 'i':
+        boxes = boxes.astype('float')
 
     # initialize the list of picked indexes
     pick = []
@@ -143,8 +146,7 @@ def nms(boxes: np.ndarray, overlap_thresh: float) -> Union[np.ndarray, List[floa
         #         print(overlap)
 
         # delete all indexes from the index list that have
-        idxs = np.delete(idxs, np.concatenate(([last],
-                                               np.where(overlap > overlap_thresh)[0])))
+        idxs = np.delete(idxs, np.concatenate(([last], np.where(overlap > overlap_thresh)[0])))
 
     # return only the bounding boxes that were picked using the
     # integer data type
@@ -153,29 +155,34 @@ def nms(boxes: np.ndarray, overlap_thresh: float) -> Union[np.ndarray, List[floa
 
 
 def extract_objects(darknet_json: Darknet_JSON) -> All_Videos_Cords:
-    base = REPO_PATH / "ori_images"
-    frames_folders = frozenset(map(lambda e: e.parent, base.rglob("*.jpg")))
+    print('**** extract_objects ****')
+
+    base = REPO_PATH / 'ori_images'
+    frames_folders = frozenset(map(lambda e: e.parent, base.rglob('*.jpg')))
     frames_folders = natsort.natsorted(frames_folders, alg=natsort.ns.PATH)
     valid_list = ('bus', 'truck', 'person', 'car', 'boat')
     all_cords = list()
 
-    for frames_folder in frames_folders:
+    T = 0
+
+    for frames_folder in tqdm.tqdm(frames_folders):
         vid_cords = list()
-        frames_numbers = filter(lambda n: n % 100 == 0, map(lambda v: int(v.stem), frames_folder.glob("*.jpg")))
-        values = itertools.islice(itertools.cycle([0, 200, 400]), len(darknet_json))
-        for _ in frames_numbers:
+        frames_numbers = list(filter(lambda n: n % 100 == 0, map(lambda v: int(v.stem), frames_folder.glob('*.jpg'))))
+        #print(frames_folder, len(frames_numbers))
+        for file in range(len(frames_numbers)):
             frame_cords = list()
-            for c, z in enumerate(zip(darknet_json, values)):
-                dic, val = z
-                for bound in dic['objects']:
+            for val in [0, 200, 400]:
+                for bound in darknet_json[T]['objects']:
                     if bound['name'] in valid_list:
                         x = bound['relative_coordinates']['center_x'] * 400 + val
                         y = bound['relative_coordinates']['center_y'] * 410
                         h = bound['relative_coordinates']['height'] * 410
                         w = bound['relative_coordinates']['width'] * 400
-                        f = c
+                        f = file
                         if w * h > 16 and w > 4 and h > 4:
                             frame_cords.append([x, y, h, w, f])
+
+                T += 1
 
             frame_cords = nms(np.array(frame_cords), 0.9)
             vid_cords.append(frame_cords)
@@ -186,8 +193,10 @@ def extract_objects(darknet_json: Darknet_JSON) -> All_Videos_Cords:
 
 
 def extract_cases(all_cords: All_Videos_Cords) -> PT:
+    print('**** extract_cases ****')
+
     maxes = list()
-    for vid_cords in all_cords:
+    for vid_cords in tqdm.tqdm(all_cords):
         vid_cords = np.array(vid_cords, dtype=object)
         at = [item for frame_cords in vid_cords for item in frame_cords]
         at = np.array(np.array(at)).reshape(-1, 5)
@@ -224,10 +233,12 @@ def extract_cases(all_cords: All_Videos_Cords) -> PT:
 
 
 def extract_roi(pt: PT, all_cords: All_Videos_Cords) -> Centers:
+    print('**** extract_roi ****')
+
     centers = list()
-    mas_dir = REPO_PATH / "Masks" / "Mas"
+    mas_dir = REPO_PATH / 'Masks' / 'Mas'
     for i in pt:
-        mask = np.load(os.fspath(mas_dir / pathlib.PurePath(VIDEOS[i - 1]).with_suffix(".npy")))
+        mask = np.load(os.fspath(mas_dir / pathlib.PurePath(VIDEOS[i - 1]).with_suffix('.npy')))
         t = np.array(all_cords[i - 1], dtype=object)
         at = [item for sublist in t for item in sublist]
         at = np.array(np.array(at)).reshape(-1, 5)
@@ -261,16 +272,23 @@ def extract_roi(pt: PT, all_cords: All_Videos_Cords) -> Centers:
 
 
 def extract_roi1(cam_change: Cam_Change, all_cords: All_Videos_Cords, loc: Loc) -> Centersf:
+    print('**** extract_roi1 ****')
+
     centersf = list()
     for i in range(0, len(cam_change)):
         centers = list()
         t = np.array(all_cords[cam_change[i] - 1])
         at = [item for sublist in t for item in sublist]
         at = np.array(np.array(at)).reshape(-1, 5)
-        imx = np.where(at[:, 4] >= 10 * loc[i])[0][0]
+        imx = np.where(at[:, 4] >= 10 * loc[i])[0]
+        if len(imx) == 0:
+            centersf.append(centers)
+            continue
+        imx = imx[0]
         at = at[0:imx, :]
 
-        mask = np.load(os.fspath(REPO_PATH / "Masks/Mas/" / pathlib.PurePath(VIDEOS[i - 1]).with_suffix(".npy")))
+        mask = np.load(
+            os.fspath(REPO_PATH / 'Masks/Mas/' / pathlib.PurePath(VIDEOS[cam_change[i] - 1]).with_suffix('.npy')))
 
         if at.shape[0] > 10:
             y = []
@@ -302,6 +320,8 @@ def extract_roi1(cam_change: Cam_Change, all_cords: All_Videos_Cords, loc: Loc) 
 
 
 def extract_bounds(centers: Centers, pt: PT, all_cords: All_Videos_Cords) -> Bounds:
+    print('**** extract_bounds ****')
+
     count = 0
     bounds = list()
     for centro in centers:
@@ -330,14 +350,18 @@ def extract_bounds(centers: Centers, pt: PT, all_cords: All_Videos_Cords) -> Bou
 
 
 def extract_bounds1(centers: Centers, cam_change: Cam_Change, loc: Loc, all_cords: All_Videos_Cords) -> Bounds1:
+    print('**** extract_bounds1 ****')
+
     bounds = list()
     for i in range(0, len(cam_change)):
         for centro in centers[i]:
-
             t = np.array(all_cords[cam_change[i] - 1])
             at = [item for sublist in t for item in sublist]
             at = np.array(np.array(at)).reshape(-1, 5)
-            imx = np.where(at[:, 4] >= 10 * loc[i])[0][0]
+            imx = np.where(at[:, 4] >= 10 * loc[i])[0]
+            if len(imx) == 0:
+                continue
+            imx = imx[0]
             at = at[0:imx, :]
 
             count2 = 1
@@ -359,14 +383,16 @@ def extract_bounds1(centers: Centers, cam_change: Cam_Change, loc: Loc, all_cord
 
 
 def change_detect(base: str) -> Tuple[Cam_Change, Loc, All_Stat3]:
+    print('**** change_detect ****')
+
     base = pathlib.Path(base)
-    frames_folders = frozenset(map(lambda e: e.parent, base.rglob("*.jpg")))
+    frames_folders = frozenset(map(lambda e: e.parent, base.rglob('*.jpg')))
     frames_folders = natsort.natsorted(frames_folders, alg=natsort.ns.PATH)
     all_stat3 = list()
 
-    for frames_folder in frames_folders:
+    for frames_folder in tqdm.tqdm(frames_folders):
         stat = list()
-        frames = iter(map(lambda f: os.fspath(f), frames_folder.rglob("*.jpg")))
+        frames = iter(map(lambda f: os.fspath(f), frames_folder.rglob('*.jpg')))
         frames = natsort.natsorted(frames, alg=natsort.ns.PATH)
         for idx in range(1, len(frames) - 10, 10):
             img0 = cv2.imread(frames[idx])
@@ -389,16 +415,15 @@ def change_detect(base: str) -> Tuple[Cam_Change, Loc, All_Stat3]:
 
 
 def backtrack(all_bounds, pt: PT, base: str) -> Tuple[Times, All_Statfn]:
+    print('**** backtrack ****')
+
     base = pathlib.Path(base)
     all_statfn = list()
-    data = []
-
-    for bounds in all_bounds:
-
+    for bounds in tqdm.tqdm(all_bounds):
+        #print(bounds[1], VIDEOS[(bounds[1] - 1)])
         if bounds[1] in pt:
-            base2 = base / pathlib.PurePath(VIDEOS[(bounds[1] - 1)]).with_suffix("")
-
-            files = natsort.natsorted(frozenset(base2.glob("*.jpg")), alg=natsort.ns.PATH)
+            base2 = base / pathlib.PurePath(VIDEOS[(bounds[1] - 1)]).with_suffix('')
+            files = natsort.natsorted(frozenset(base2.glob('*.jpg')), alg=natsort.ns.PATH)
 
             stat = list()
             back_len = int(bounds[0][4] * 100)
@@ -407,39 +432,23 @@ def backtrack(all_bounds, pt: PT, base: str) -> Tuple[Times, All_Statfn]:
             h = int(bounds[0][2] / 2)
             w = int(bounds[0][3] / 2)
 
-            last_frame = int(files[- 1].stem)
+            last_frame = int(files[-1].stem)
+            back_len = min(back_len, last_frame)
+            assert back_len % 10 == 0
 
-            if back_len > last_frame:
-                back_len = int(back_len / 10)
+            img0 = cv2.imread(os.fspath(base2 / (str(back_len) + '.jpg')))[y - h:y + h, x - w:x + w]
+            img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
 
-            if back_len <= last_frame:
-                img0 = cv2.imread(os.fspath(base2 / (str(back_len) + ".jpg")))[y - h:y + h, x - w:x + w]
-                img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
+            for idx in range(np.min((last_frame, 2 * back_len)), 90, -10):
+                img1 = cv2.imread(os.fspath(base2 / (str(idx) + '.jpg')))[y - h:y + h, x - w:x + w]
+                img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
 
-                data.append({
-                    'relative_path': VIDEOS[bounds[1] - 1].split('.')[0],
-                    'img0': str(back_len) + ".jpg",
-                    'imgs1': [],
-                    'stat': []
-                })
+                stat.append(metrics.structural_similarity(img0, img1, multichannel=True, win_size=3))
 
-                for idx in range(np.min((26750, 2 * back_len)), 90, -5):
-                    if idx % 10 == 0 and idx <= last_frame:
-                        img1 = cv2.imread(os.fspath(base2 / (str(idx) + ".jpg")))[y - h:y + h, x - w:x + w]
-                        img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+            for idx in range(0, len(stat) - 35):
+                stat[idx] = np.max((stat[idx:idx + 35]))
 
-                        ssim = metrics.structural_similarity(img0, img1, multichannel=True, win_size=3)
-
-                        data[-1]['imgs1'].append(str(idx) + ".jpg")
-                        data[-1]["stat"].append(ssim)
-
-                        stat.append(ssim)
-
-                for idx in range(0, len(stat) - 35):
-                    stat[idx] = np.max((stat[idx:idx + 35]))
-                    data[-1]["stat"][idx] = np.max((stat[idx:idx + 35]))
-
-                all_statfn.append(stat)
+            all_statfn.append(stat)
 
     times = {}
     count = 0
@@ -448,32 +457,15 @@ def backtrack(all_bounds, pt: PT, base: str) -> Tuple[Times, All_Statfn]:
         count += 1
 
     count = 0
-    for stat in all_statfn:
-        image_counter = 0
-        video = data[count]
-        video_name = video['relative_path']
-        if np.max(stat) > 0.5 and np.min(stat) < 0.65:
+    for stat in tqdm.tqdm(all_statfn):
+        if np.max(stat) > 0.5 and np.min(stat) < 0.65 and len(stat) >= 21:
             stat = savgol_filter(stat, 21, 1)
             nstat = (list(reversed(stat)) - min(stat)) / (max(stat) - min(stat))
             found = check_continual(nstat, 150)
             if found:
-                frame_image = video["imgs1"][image_counter]
-
-                print("video name:", video_name)
-                print("frame_image:", frame_image)
-
-                img = cv2.imread(os.fspath(base / video_name / frame_image), cv2.IMREAD_UNCHANGED)
-                scale_percent = 50  # percent of original size
-                width = int(img.shape[1] * scale_percent / 100)
-                height = int(img.shape[0] * scale_percent / 100)
-                dim = (width, height)
-                resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
-                cv2_imshow(resized)
-
-                times[all_bounds[count][1]] = np.min((times[all_bounds[count][1]], np.min(
-                    ((np.where(np.array(nstat) >= 0.4)[0][0]) * 5 / 30, times[all_bounds[count][1]]))))
-
-            image_counter += 1
+                times[all_bounds[count][1]] = np.min(
+                    (times[all_bounds[count][1]],
+                     np.min(((np.where(np.array(nstat) >= 0.4)[0][0]) * 5 / 30, times[all_bounds[count][1]]))))
 
         count += 1
 
@@ -481,16 +473,14 @@ def backtrack(all_bounds, pt: PT, base: str) -> Tuple[Times, All_Statfn]:
 
 
 def backtrack1(all_bounds: Bounds, base: str) -> Tuple[Times, All_Statfn]:
+    print('**** backtrack1 ****')
+
     base = pathlib.Path(base)
     all_statfn = list()
-    data = list()
-
-    for bounds in all_bounds:
-        base / pathlib.PurePath(VIDEOS[(bounds[1] - 1)]).with_suffix("")
-
-        base2 = base / pathlib.PurePath(VIDEOS[(bounds[1])]).with_suffix("")
-
-        files = natsort.natsorted(frozenset(base2.glob("*.jpg")), alg=natsort.ns.PATH)
+    for bounds in tqdm.tqdm(all_bounds):
+        print(bounds[1], VIDEOS[(bounds[1] - 1)])
+        base2 = base / pathlib.PurePath(VIDEOS[(bounds[1] - 1)]).with_suffix('')
+        files = natsort.natsorted(frozenset(base2.glob('*.jpg')), alg=natsort.ns.PATH)
 
         stat = list()
         back_track = int(bounds[0][4] * 100)
@@ -500,72 +490,42 @@ def backtrack1(all_bounds: Bounds, base: str) -> Tuple[Times, All_Statfn]:
         w = int(bounds[0][3] / 2)
 
         last_frame = int(files[-1].stem)
+        back_track = min(back_track, last_frame)
+        assert back_track % 10 == 0
 
-        if back_track > last_frame:
-            back_track = int(back_track / 10)
+        img0 = cv2.imread(os.fspath(base2 / (str(back_track) + '.jpg')))[y - h:y + h, x - w:x + w]
+        img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
 
-        if back_track <= last_frame:
-            img0 = cv2.imread(os.fspath(base2 / (str(back_track) + ".jpg")))[y - h:y + h, x - w:x + w]
-            img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY)
+        for idx in range(np.min((last_frame, 2 * back_track)), 90, -10):
+            img1 = cv2.imread(os.fspath(base2 / (str(idx) + '.jpg')))[y - h:y + h, x - w:x + w]
+            img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
 
-            for idx in range(np.min((26750, 2 * back_track)), 90, -5):
-                if idx % 10 == 0:
-                    img1 = cv2.imread(os.fspath(base2 / (str(idx) + ".jpg")))[y - h:y + h, x - w:x + w]
-                    img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+            stat.append(metrics.structural_similarity(img0, img1, multichannel=True, win_size=3))
 
-                    data.append({
-                        'relative_path': VIDEOS[(bounds[1]) - 1].split('.')[0],
-                        'img0': str(back_track) + ".jpg",
-                        'imgs1': [],
-                        'stat': []
-                    })
+        for idx in range(0, len(stat) - 35):
+            stat[idx] = np.max((stat[idx:idx + 35]))
 
-                    stat.append(metrics.structural_similarity(img0, img1, multichannel=True, win_size=3))
-
-            for idx in range(0, len(stat) - 35):
-                stat[idx] = np.max((stat[idx:idx + 35]))
-                data[0]["stat"][idx] = np.max((stat[idx:idx + 35]))
-
-            all_statfn.append(stat)
+        all_statfn.append(stat)
 
     times = {}
     count = 0
     for stat in all_statfn:
         times[all_bounds[count][1]] = 999
-
         count += 1
 
     count = 0
-    image_counter = 0
-
-    for stat in all_statfn:
-        video = data[count]
-        video_name = video['relative_path']
+    for stat in tqdm.tqdm(all_statfn):
         stat = reject_outliers(stat)
-        if np.max(stat) > 0.5 and np.min(stat) < 0.55:
+        if np.max(stat) > 0.5 and np.min(stat) < 0.55 and len(stat) >= 21:
             stat = savgol_filter(stat, 21, 1)
-
             nstat = (list(reversed(stat)) - min(stat)) / (max(stat) - min(stat))
             found = check_continual(nstat, 150)
-
             if found:
-                frame_image = video["img0"]
-                print("video name:", video_name)
-                print("frame_image:", frame_image)
-                img = cv2.imread(os.fspath(base / video_name / frame_image), cv2.IMREAD_UNCHANGED)
-
-                scale_percent = 50  # percent of original size
-                width = int(img.shape[1] * scale_percent / 100)
-                height = int(img.shape[0] * scale_percent / 100)
-                dim = (width, height)
-                resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
-                cv2_imshow(resized)
-
                 if (np.where(np.array(nstat) >= 0.4))[0][0] != 0:
-                    times[all_bounds[count][1]] = np.min((times[all_bounds[count][1]], np.min(
-                        ((np.where(np.array(nstat) >= 0.5)[0][0]) * 5 / 30, times[all_bounds[count][1]]))))
+                    times[all_bounds[count][1]] = np.min(
+                        (times[all_bounds[count][1]],
+                         np.min(((np.where(np.array(nstat) >= 0.5)[0][0]) * 5 / 30, times[all_bounds[count][1]]))))
 
-                image_counter += 1
         count += 1
 
     return times, all_statfn

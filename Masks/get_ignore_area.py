@@ -32,7 +32,6 @@ def ignore_area(masks_dir: pathlib.PurePath, mask_txt: pathlib.PurePath, mas_dir
 
     h = 410
     w = 800
-    c = 3
     mat = np.zeros((h, w))
     for frame in dt_results_fbf:
         if frame < 18000:
@@ -40,8 +39,9 @@ def ignore_area(masks_dir: pathlib.PurePath, mask_txt: pathlib.PurePath, mas_dir
 
             for box in dt_results_fbf[frame]:
                 score = box[4]
-                tmp_score[int(float(box[1])):int(float(box[3])), int(float(box[0])):int(float(box[2]))] = np.maximum(
-                    score, tmp_score[int(float(box[1])):int(float(box[3])), int(float(box[0])):int(float(box[2]))])
+                old_score = tmp_score[int(float(box[1])):int(float(box[3])), int(float(box[0])):int(float(box[2]))]
+                tmp_score[int(float(box[1])):int(float(box[3])),
+                          int(float(box[0])):int(float(box[2]))] = np.maximum(score, old_score)
 
             mat = mat + tmp_score
 
@@ -58,21 +58,21 @@ def ignore_area(masks_dir: pathlib.PurePath, mask_txt: pathlib.PurePath, mas_dir
     mask = mask.astype(float)
     k = gaussian_filter(mask, gass_sigma)
     mask = k > count_thred
-    mask_npy = mas_dir / mask_txt.with_suffix(".npy")
+    mask_npy = mas_dir / mask_txt.with_suffix('.npy')
     mask_npy.parent.mkdir(parents=True, exist_ok=True)
     np.save(os.fspath(mask_npy), mask)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     start_time = time.perf_counter()
     masks_dir = pathlib.Path(__file__).resolve().parent
-    masks_txt = iter(map(lambda txt: txt.relative_to(masks_dir), masks_dir.rglob("*.txt")))
+    masks_txt = iter(map(lambda txt: txt.relative_to(masks_dir), masks_dir.rglob('*.txt')))
     masks_txt = natsort.natsorted(masks_txt, alg=natsort.ns.PATH)
-    mas_dir = masks_dir / "Mas"
+    mas_dir = masks_dir / 'Mas'
 
     for mask_txt in tqdm.tqdm(masks_txt):
         ignore_area(masks_dir, mask_txt, mas_dir)
 
     end_time = time.perf_counter()
-    res = time.strftime("%Hh:%Mm:%Ss", time.gmtime(end_time - start_time))
-    print(f"Finished in {res}")
+    res = time.strftime('%Hh:%Mm:%Ss', time.gmtime(end_time - start_time))
+    print(f'Finished in {res}')
