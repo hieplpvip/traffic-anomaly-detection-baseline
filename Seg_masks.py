@@ -5,7 +5,7 @@ from typing import Dict
 
 import tqdm
 
-VALID_NAMES = ['car', 'bus', 'truck']
+VALID_NAMES = ('car', 'bus', 'truck')
 
 
 def seg_masks(frame: Dict) -> None:

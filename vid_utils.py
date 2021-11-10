@@ -8,8 +8,6 @@ import cv2
 import natsort
 import numpy as np
 import tqdm
-from IPython import display
-from PIL import Image
 from kneed import KneeLocator
 from scipy.signal import savgol_filter
 from skimage import metrics
@@ -43,39 +41,15 @@ All_Stat3 = List[List[Union[np.ndarray, int, float, complex]]]
 
 # --------------------------------------------------------------------------------------------------
 
-
-def get_videos() -> List[str]:
-    with open(REPO_PATH / 'dataset.json', 'r') as f:
-        videos = json.load(f)
-        return videos
-
-
-VIDEOS = get_videos()
-
-
-def cv2_imshow(a: np.ndarray) -> None:
-    '''
-    A replacement for cv2.imshow() for use in Jupyter notebooks.
-    Args:
-    a : np.ndarray. shape (N, M) or (N, M, 1) is an NxM grayscale image. shape
-        (N, M, 3) is an NxM BGR color image. shape (N, M, 4) is an NxM BGRA color
-        image.
-    '''
-    a = a.clip(0, 255).astype('uint8')
-    # cv2 stores colors as BGR; convert to RGB
-    if a.ndim == 3:
-        if a.shape[2] == 4:
-            a = cv2.cvtColor(a, cv2.COLOR_BGRA2RGBA)
-        else:
-            a = cv2.cvtColor(a, cv2.COLOR_BGR2RGB)
-    display.display(Image.fromarray(a))
+with open(REPO_PATH / 'dataset.json', 'r') as f:
+    VIDEOS = json.load(f)
 
 
 def kmeans_clu(data: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray, List[int], KMeans]:
     kmeans = KMeans(n_clusters=k, max_iter=10000, n_init=10).fit(data)  ##Apply k-means clustering
     labels = kmeans.labels_
     clu_centres = kmeans.cluster_centers_
-    z = [np.where(kmeans.labels_ == i)[0] for i in range(kmeans.n_clusters)]
+    z = {i: np.where(kmeans.labels_ == i)[0] for i in range(kmeans.n_clusters)}
     return clu_centres, labels, z, kmeans
 
 
@@ -168,17 +142,19 @@ def extract_objects(darknet_json: Darknet_JSON) -> All_Videos_Cords:
     for frames_folder in tqdm.tqdm(frames_folders):
         vid_cords = list()
         frames_numbers = list(filter(lambda n: n % 100 == 0, map(lambda v: int(v.stem), frames_folder.glob('*.jpg'))))
+        frames_numbers = natsort.natsorted(frames_numbers, alg=natsort.ns.PATH)
         #print(frames_folder, len(frames_numbers))
-        for file in range(len(frames_numbers)):
+        for id, file in enumerate(frames_numbers, start=1):
             frame_cords = list()
-            for val in [0, 200, 400]:
+            for i, val in enumerate([0, 200, 400], start=1):
+                assert f'{file}_{i}.jpg' in darknet_json[T]['filename']
                 for bound in darknet_json[T]['objects']:
                     if bound['name'] in valid_list:
                         x = bound['relative_coordinates']['center_x'] * 400 + val
                         y = bound['relative_coordinates']['center_y'] * 410
                         h = bound['relative_coordinates']['height'] * 410
                         w = bound['relative_coordinates']['width'] * 400
-                        f = file
+                        f = id
                         if w * h > 16 and w > 4 and h > 4:
                             frame_cords.append([x, y, h, w, f])
 
@@ -275,7 +251,7 @@ def extract_roi1(cam_change: Cam_Change, all_cords: All_Videos_Cords, loc: Loc) 
     print('**** extract_roi1 ****')
 
     centersf = list()
-    for i in range(0, len(cam_change)):
+    for i in tqdm.tqdm(range(len(cam_change))):
         centers = list()
         t = np.array(all_cords[cam_change[i] - 1])
         at = [item for sublist in t for item in sublist]
@@ -324,8 +300,7 @@ def extract_bounds(centers: Centers, pt: PT, all_cords: All_Videos_Cords) -> Bou
 
     count = 0
     bounds = list()
-    for centro in centers:
-
+    for centro in tqdm.tqdm(centers):
         t = np.array(all_cords[-1 + pt[count]], dtype=object)
         at = [item for sublist in t for item in sublist]
         at = np.array(np.array(at)).reshape(-1, 5)
@@ -353,7 +328,7 @@ def extract_bounds1(centers: Centers, cam_change: Cam_Change, loc: Loc, all_cord
     print('**** extract_bounds1 ****')
 
     bounds = list()
-    for i in range(0, len(cam_change)):
+    for i in tqdm.tqdm(range(len(cam_change))):
         for centro in centers[i]:
             t = np.array(all_cords[cam_change[i] - 1])
             at = [item for sublist in t for item in sublist]
@@ -394,7 +369,7 @@ def change_detect(base: str) -> Tuple[Cam_Change, Loc, All_Stat3]:
         stat = list()
         frames = iter(map(lambda f: os.fspath(f), frames_folder.rglob('*.jpg')))
         frames = natsort.natsorted(frames, alg=natsort.ns.PATH)
-        for idx in range(1, len(frames) - 10, 10):
+        for idx in range(0, len(frames) - 10, 10):  # why starts from 1?
             img0 = cv2.imread(frames[idx])
             img1 = cv2.imread(frames[idx + 10])
 
@@ -478,7 +453,7 @@ def backtrack1(all_bounds: Bounds, base: str) -> Tuple[Times, All_Statfn]:
     base = pathlib.Path(base)
     all_statfn = list()
     for bounds in tqdm.tqdm(all_bounds):
-        print(bounds[1], VIDEOS[(bounds[1] - 1)])
+        #print(bounds[1], VIDEOS[(bounds[1] - 1)])
         base2 = base / pathlib.PurePath(VIDEOS[(bounds[1] - 1)]).with_suffix('')
         files = natsort.natsorted(frozenset(base2.glob('*.jpg')), alg=natsort.ns.PATH)
 

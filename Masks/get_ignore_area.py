@@ -34,16 +34,15 @@ def ignore_area(masks_dir: pathlib.PurePath, mask_txt: pathlib.PurePath, mas_dir
     w = 800
     mat = np.zeros((h, w))
     for frame in dt_results_fbf:
-        if frame < 18000:
-            tmp_score = np.zeros((h, w))
+        tmp_score = np.zeros((h, w))
 
-            for box in dt_results_fbf[frame]:
-                score = box[4]
-                old_score = tmp_score[int(float(box[1])):int(float(box[3])), int(float(box[0])):int(float(box[2]))]
-                tmp_score[int(float(box[1])):int(float(box[3])),
-                          int(float(box[0])):int(float(box[2]))] = np.maximum(score, old_score)
+        for box in dt_results_fbf[frame]:
+            score = box[4]
+            old_score = tmp_score[int(float(box[1])):int(float(box[3])), int(float(box[0])):int(float(box[2]))]
+            tmp_score[int(float(box[1])):int(float(box[3])),
+                      int(float(box[0])):int(float(box[2]))] = np.maximum(score, old_score)
 
-            mat = mat + tmp_score
+        mat = mat + tmp_score
 
     mat = mat - np.min(mat)
     mat = mat / np.max(mat)
